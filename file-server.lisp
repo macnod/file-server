@@ -233,7 +233,7 @@ directory's ID if it does and NIL otherwise."
   ;; Initialize the database
   (let ((success (handler-case (init-database)
                    (error (condition)
-                     (log-it :error (format nil "~a" condition))
+                     (u:log-it :error (format nil "~a" condition))
                      nil))))
 
     ;; Start the Swank server
