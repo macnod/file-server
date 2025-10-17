@@ -211,7 +211,7 @@ directory's ID if it does and NIL otherwise."
   (u:log-it :info "Server started on http://localhost:~d" *http-port*)
   (h:start *server*))
 
-(defun init-database ()
+(defun init-database ()  
   (setf *rbac* (make-instance 'a:rbac-pg
                  :host *db-host*
                  :port *db-port*
@@ -226,21 +226,25 @@ directory's ID if it does and NIL otherwise."
   ;; Add root user if it doesn't exist
   (unless (a:get-id *rbac* "users" *root-username*)
     (a:d-add-user *rbac* *root-username* *root-password* 
-      :roles (list *root-role*))))
+      :roles (list *root-role*)))
+  *rbac*)
 
 (defun run ()
   ;; Initialize the database
-  (init-database)
+  (let ((success (handler-case (init-database)
+                   (error (condition)
+                     (log-it :error (format nil "~a" condition))
+                     nil))))
 
-  ;; Start the Swank server
-  (swank:create-server 
-    :interface "0.0.0.0"
-    :port 4005
-    :style :spawn
-    :dont-close t)
-
-  ;; Start the Web server
-  (start-web-server)
+    ;; Start the Swank server
+    (swank:create-server 
+      :interface "0.0.0.0"
+      :port 4005
+      :style :spawn
+      :dont-close t)
+    (when success
+      ;; Start the Web server
+      (start-web-server)))
 
   ;; Continuously sync the file system directories with the rbac resources
   ;; (directories, as tracked in the rbac system). If a new directory appears in
