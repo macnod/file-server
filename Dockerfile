@@ -1,3 +1,5 @@
+# macnod/file-server
+
 FROM ubuntu:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -37,6 +39,7 @@ RUN $ROSWELL setup
 RUN $ROSWELL install macnod/dc-ds
 RUN $ROSWELL install macnod/dc-dlist
 RUN $ROSWELL install macnod/dc-eclectic
+RUN $ROSWELL install macnod/file-server
 RUN $ROSWELL install postmodern
 RUN $ROSWELL install uiop
 RUN $ROSWELL install cl-ppcre
