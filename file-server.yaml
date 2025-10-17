@@ -77,10 +77,18 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/lisp-basic:latest
+          image: macnod/file-server:latest
           imagePullPolicy: Never
           command: ["ros"]
-          args: ["run", "--", "--eval", "(require :file-server)"]
+          args: 
+            - "run"
+            - "--"
+            - "--eval"
+            - "(require :file-server)"
+            - "--eval"
+            - "(in-package :file-server)"
+            - "--eval"
+            - "(run)"
           ports:
             - containerPort: 8080
             - containerPort: 4005
