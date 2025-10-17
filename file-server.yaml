@@ -80,25 +80,35 @@ spec:
           image: macnod/lisp-basic:latest
           imagePullPolicy: Never
           command: ["ros"]
-          args: ["run", "--", "--load", "/app/file-server.lisp"]
+          args: ["run", "--", "--eval", "(require :file-server)"]
           ports:
             - containerPort: 8080
             - containerPort: 4005
           env:
-            - name: ROOT_USER
-              value: "macnod"
-            - name: ROOT_USER_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: file-server-secrets
-                  key: root-user-password
-            - name: POSTGRES_USER
-              value: "file_server"
-            - name: POSTGRES_PASSWORD
+            # Database connection
+            - name: DB_HOST
+              value: "postgres"
+            - name: DB_PORT
+              value: "5432"
+            - name: DB_NAME
+              value: "fileserver"
+            - name: DB_USER
+              value: "fileserver"
+            - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: file-server-secrets
                   key: postgres-password
+            # Root user with access to all resources
+            - name: ROOT_USER
+              value: "admin"
+            - name: ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-secrets
+                  key: root-user-password
+            - name: LOG_SEVERITY
+              value: debug
           volumeMounts:
             - mountPath: /app
               name: file-server-volume
@@ -111,8 +121,10 @@ spec:
           ports:
             - containerPort: 5432
           env:
+            - name: POSTGRES_DB
+              value: "fileserver"
             - name: POSTGRES_USER
-              value: "file_server"
+              value: "fileserver"
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:

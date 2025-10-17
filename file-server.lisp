@@ -1,243 +1,87 @@
-(require :hunchentoot)
-(require :postmodern)
-(require :cl-ppcre)
-(require :swank)
-
-(defpackage :file-server
-  (:use :cl :hunchentoot :postmodern :cl-ppcre))
 (in-package :file-server)
 
-(require :swank)
+;; Database
+(defparameter *db-host* (u:getenv "DB_HOST" :default "localhost"))
+(defparameter *db-port* (u:getenv "DB_PORT" :default 5432 :type :integer))
+(defparameter *db-name* (u:getenv "DB_NAME" :default "fileserver"))
+(defparameter *db-username* (u:getenv "DB_USER" :default "fileserver"))
+(defparameter *db-password* (u:getenv "DB_PASSWORD"
+                              :default "fileserver-password"))
 
+;; User
+(defparameter *root-username* (u:getenv "ROOT_USER" :default "admin"))
+(defparameter *root-password* (u:getenv "ROOT_PASSWORD" 
+                                :default "admin-password"))
+(defparameter *root-role* "admin")
+
+;; HTTP and Swank servers
+(defparameter *http-port* (u:getenv "HTTP_PORT" :default 8080 :type :integer))
+(defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT" 
+                                :default "/app/shared-files/"))
+(defparameter *swank-port* (u:getenv "SWANK_PORT" :default 4005 :type :integer))
+
+;; Logs
+(defparameter *log-file* (or (u:getenv "LOG_FILE") *standard-output*))
+(defparameter *log-severity-threshold* 
+  (intern (string-upcase (or (u:getenv "LOG_SEVERITY") "DEBUG")) :keyword))
+
+;; Other
 (defparameter *server* nil)
-(defparameter *logs* "/app/logs/web-server.log")
-(defparameter *http-port* 8080)
-(defparameter *document-root* "/app/shared-files/")
-(defparameter *database-name* "file_server")
-(defparameter *database-user* (sb-ext:posix-getenv "POSTGRES_USER"))
-(defparameter *database-password* (sb-ext:posix-getenv "POSTGRES_PASSWORD"))
-(defparameter *database-host* "localhost")
-(defparameter *database-port* 5432)
-(defparameter *root-user* (sb-ext:posix-getenv "ROOT_USER"))
-(defparameter *root-user-password* (sb-ext:posix-getenv "ROOT_USER_PASSWORD"))
-(defparameter *root-user-id* nil)
-(defparameter *debug* nil)
-
-(unless (and
-          *database-user*
-          *database-password*
-          *root-user*
-          *root-user-password*)
-  (error "The following environment variables must be set: ~s"
-    "DATABASE-USER, DATABASE-PASSWORD, ROOT-USER, and ROOT-PASSWORD."))
-
-(defun dbug (message &rest params)
-  (when *debug*
-    (apply #'format (append `(t ,message) params))))
-
-(defun verify-string (string regex &key ignore-case)
-  "Return t if STRING matches the REGEX exactly.  Use the IGNORE-CASE
-parameter if you want case-insensitve matches."
-  (let ((s (format nil "~a" string)))
-    (multiple-value-bind (a b)
-        (scan (if ignore-case (concatenate 'string "(?is)" regex) regex) s)
-      (and a b (zerop a) (= b (length s))))))
-
-(defun join-paths (&rest path-parts)
-  "Joins parameters (collected in PATH-PARTS) into a unix-like file
-path, inserting slashes where necessary."
-  (when (null path-parts) (return-from join-paths ""))
-  (let* ((parts (loop for part in path-parts
-                      for part-string = (when part (format nil "~a" part))
-                      unless (or (null part-string) (zerop (length part-string)))
-                        collect part-string))
-         (absolute (verify-string (car parts) "^/.*$"))
-         (clean-parts (remove-if
-                       (lambda (p) (zerop (length p)))
-                       (mapcar
-                        (lambda (p) (regex-replace-all "^/|/$" p ""))
-                        parts)))
-         (path (format nil "~{~a~^/~}" clean-parts)))
-    (format nil "~a~a" (if absolute "/" "") path)))
-
-;; Needs tests
-(defun file-exists-p (path)
-  "Returns a boolean value indicating if the file specified by PATH exists."
-  (let ((path (probe-file path)))
-    (and path
-         (not (equal (file-namestring path) "")))))
-
-;; Needs tests
-(defun directory-exists-p (path)
-  "Returns a boolean value indicating if the directory specified by PATH
-exists."
-  (let ((path (probe-file path)))
-    (and path
-         (not (equal (directory-namestring path) ""))
-         (equal (file-namestring path) ""))))
-
-;; Needs tests
-(defun path-type (path)
-  "Returns :FILE, :DIRECTORY, or :NOT-FOUND, depending on what PATH
- points to."
-  (cond ((file-exists-p path) :file)
-        ((directory-exists-p path) :directory)
-        (t :not-found)))
-
-(defun path-only (filename)
-  "Retrieves the path (path only, without the filename) of FILENAME."
-  (declare (type (or string null) filename))
-  (multiple-value-bind (match strings)
-      (scan-to-strings "(.+)\/[^\/]*$" filename)
-    (declare (ignore match))
-    (let ((string-list (map 'list 'identity strings)))
-      (if (or (null string-list)
-              (null (car string-list)))
-          "/"
-          (elt string-list 0)))))
-
-(defun file-name-only (filename)
-  "Retrieves the filename (filename only, without the path) of FILENAME."
-  (if (null filename)
-      ""
-      (if (stringp filename)
-          (multiple-value-bind (match parts)
-              (scan-to-strings "((.*)/)?([^\/]*)$" filename)
-            (declare (ignore match))
-            (if (not (zerop (length parts)))
-                (elt parts (1- (length parts)))
-                ""))
-          (error "FILENAME must be a string."))))
-
-(defun leaf-directory-only (path)
-  (car (last (split "/" (string-trim "/" path)))))
-
-(defun db-insert-root-user ()
-  (let ((new-id (query "insert into users (username, password)
-                          values ($1, $2)
-                          on conflict (username) do nothing
-                          returning id"
-                  *root-user*
-                  *root-user-password*
-                  :single)))
-    (if new-id
-      new-id
-      (query "select id from users
-              where username = $1 and password = $2"
-        *root-user*
-        *root-user-password*
-        :single))))
+(defparameter *root-userid* nil)
+(defparameter *rbac* nil)
 
 (defun db-directory-id (directory)
-  "Determines if DIRECTORY exists in the database, returning the directory's ID
-if it does and NIL otherwise."
-  (query
-    "select id
-     from directories
-     where directory = $1"
-    directory
-    :single))
+  "Determines if DIRECTORY exists as a resource in the database, returning the
+directory's ID if it does and NIL otherwise."
+  (a:get-id *rbac* "resources" directory))
 
 (defun db-user-id (user password)
-  (query
-    "select id from users where username = $1 and password = $2"
-    user
-    password
-    :single))
-
-(defun db-directory-user-id (directory-id user-id)
-  (query
-    "select id from directory_users
-     where directory_id = $1 and user_id = $2"
-    directory-id
-    user-id
-    :single))
-
-(defun db-insert-directory-user (directory-id user-id)
-  (let ((dir-user-id (db-directory-user-id directory-id user-id)))
-    (if dir-user-id
-      dir-user-id
-      (query "insert into directory_users
-                (directory_id, user_id)
-                values ($1, $2)
-                returning id"
-        directory-id user-id :single))))
-
-(defun db-insert-directory (directory)
-  (dbug "Inserting directory ~a~%" directory)
-  (let* ((maybe-dir-id (db-directory-id directory))
-          (dir-id (if maybe-dir-id
-                    maybe-dir-id
-                    (query "insert into directories (directory)
-                            values ($1)
-                            returning id"
-                      directory
-                      :single))))
-    (dbug "Inserting directory->user ~a (~a) -> ~a (~a)~%"
-      directory
-      dir-id
-      *root-user*
-      *root-user-id*)
-    (db-insert-directory-user dir-id *root-user-id*)
-    dir-id))
+  (a:d-login *rbac* user password))
 
 (defun db-list-directories ()
-  (query "select directory from directories" :column))
-
-(defun db-delete-directory (dir)
-  (query "delete from directories where directory = $1" dir))
+  (a:list-resource-names *rbac*))
 
 (defun fs-list-directories ()
   (mapcar
     (lambda (dir) (subseq
                     (format nil "~a" dir)
                     (1- (length *document-root*))))
-    (directory (format nil "~a**/" *document-root*))))  
+    (directory (format nil "~a**/" *document-root*))))
 
 (defun sync-directories ()
-  (let ((fs-dirs (fs-list-directories))
-         (db-dirs (db-list-directories)))
-    (loop for dir in fs-dirs
-      unless (db-directory-id dir) do
-      (db-insert-directory dir))
-    (loop for dir in db-dirs
-      unless (member dir fs-dirs :test 'equal)
-      do (db-delete-directory dir))))
+  (let* ((fs-dirs (fs-list-directories))
+          (db-dirs (db-list-directories))
+          (added (loop 
+                   for dir in fs-dirs
+                   when (db-directory-id dir)
+                   do (a:d-add-resource *rbac* dir :roles '(*root-role*))
+                   and collect dir))
+          (removed (loop for dir in db-dirs
+                     unless (member dir fs-dirs :test 'equal)
+                     do (a:d-remove-resource *rbac* dir)
+                     and collect dir)))
+    (when added
+      (u:log-it :info "added directorie~p: ~{~a~^, ~}" 
+        (length added) added))
+    (when removed
+      (u:log-it :info "removed directorie~p: ~{~a~^, ~}"
+        (length removed) removed))))
                      
 (defun clean-path (path)
   (if (equal path "/")
     path
-    (let* ((path-only (path-only path))
+    (let* ((path-only (u:path-only path))
             (clean-path (if (equal path-only "/")
                           "/"
                           (format nil "/~a/" (string-trim "/" path-only)))))
-      (dbug "path-only=~a; clean-path=~a~%" path clean-path)
+      (u:log-it :debug "path-only=~a; clean-path=~a" path clean-path)
       clean-path)))
 
-(defun has-access (user path)
-  (if (equal path "/")
-    t
-    (query
-      "select 1
-       from directory_users du
-         join directories d on d.id = du.directory_id
-         join users u on u.id = du.user_id
-       where
-         u.username = $1
-         and d.directory = $2"
-      user
-      (clean-path path)
-      :single)))
-
-(defun log-event (type details)
-  (query
-    "insert into events (event_type, event_details, created_at)
-       values ($1, $2, now())"
-    type
-    details))
+(defun has-read-access (user path)
+  (a:user-allowed *rbac* user "read" path))
 
 (defun list-files (abs-path)
-  (let ((path (if (scan "/$" abs-path)
+  (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
     (mapcar 
@@ -245,27 +89,30 @@ if it does and NIL otherwise."
         (subseq (namestring p) (1- (length *document-root*))))
       (uiop:directory-files path))))
 
-(defun list-subdirectories (abs-path)
-  (let ((path (if (scan "/$" abs-path)
+(defun rdl-subdirectories (user abs-path)
+  (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
-    (mapcar
-      (lambda (p)
-        (subseq (namestring p) (1- (length *document-root*))))
-      (uiop:subdirectories path))))
+    (remove-if-not 
+      (lambda (path)
+        (has-read-access user path))
+      (mapcar
+        (lambda (p)
+          (subseq (namestring p) (1- (length *document-root*))))
+        (uiop:subdirectories path)))))
 
-(defun list-directory (path abs-path)
-  (setf (content-type*) "text/html")
+(defun render-directory-listing (user path abs-path)
+  (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
-         (subdirs (list-subdirectories abs-path))
-         (crumbs (loop 
+         (subdirs (rdl-subdirectories user abs-path))
+         (crumbs (loop
                    with path-parts = (cons "/"
-                                       (split "/" (string-trim "/" path)))
+                                       (re:split "/" (string-trim "/" path)))
                    with count = (length path-parts)
                    for part in path-parts
                    for index = 1 then (1+ index)
                    for last = (= index count)
-                   for parent-path = part then (join-paths parent-path part)
+                   for parent-path = part then (u:join-paths parent-path part)
                    for parent-name = "root" then part
                    collect (if last
                              (format nil "~a" parent-name)
@@ -273,9 +120,9 @@ if it does and NIL otherwise."
                                parent-path parent-name))
                    into breadcrumbs
                    finally (return (format nil "~{~a~^/~}" breadcrumbs)))))
-    (dbug "List directories~%")
-    (dbug "Files: ~{~a~^, ~}~%" files)
-    (dbug "Subdirs: ~{~a~^, ~}~%" subdirs)
+    (u:log-it :info "List directories")
+    (u:log-it :debug "Files: ~{~a~^, ~}" files)
+    (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
     (format nil "<h1>Donnie's Bad-Ass File Server</h1>
 <h2>~a</h2>
 <ul>
@@ -286,13 +133,13 @@ if it does and NIL otherwise."
         (lambda (d)
           (format nil "<li><a href=\"/files?path=~a\">~a</a></li>" 
             d 
-            (leaf-directory-only d)))
+            (u:leaf-directory-only d)))
         subdirs)
       (mapcar 
         (lambda (f)
           (format nil "<li><a href=\"/files?path=~a\">~a</a></li>" 
             f 
-            (file-name-only f)))
+            (u:filename-only f)))
         files))))
 
 (defun get-current-datetime ()
@@ -301,90 +148,102 @@ if it does and NIL otherwise."
     (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d"
             year month day hour minute second)))
 
-(define-easy-handler (health :uri "/health") ()
+(h:define-easy-handler (health :uri "/health") ()
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (get-current-datetime)))
 
-(define-easy-handler (root :uri "/") ()
-  (redirect "https://files.sinistercode.com/files?path=/"))
+(h:define-easy-handler (root :uri "/") ()
+  (h:redirect "https://files.sinistercode.com/files?path=/"))
 
-(define-easy-handler (main-handler :uri "/files") (path)
-  (dbug "Processing request ~a~%" *request*)
-  (dbug "Authorization header: ~a~%" (header-in "authorization" *request*))
+(h:define-easy-handler (main-handler :uri "/files") (path)
+  (u:log-it :debug "Processing request ~a" h:*request*)
+  (u:log-it :debug "Authorization header: ~a" (h:header-in "authorization" h:*request*))
   (multiple-value-bind (user password) (authorization)
     (unless user
-      (return-from main-handler (require-authorization "File Server")))
-  (let* ((abs-path (join-paths *document-root* path))
-          (user-id (db-user-id user password))
-          (method (request-method *request*)))
-    (dbug "User=~a; UserID=~a; Password=~a; Method=~a; Path=~a; AbsPath=~a~%" 
-      user user-id password method path abs-path)
-    ;; Is user authorized?
-    (unless user-id
-      (return-from main-handler (require-authorization "File Server")))
-    (dbug "User is authorized~%")
-    ;; Is the method GET?
-    (unless (eql method :get)
-      (log-event "bad-method"
-        (format nil "~a; username=~a; method=~a; path=~a;~%" 
-          "Method not allowed" user method path))
-        (setf (return-code *reply*) 405)
+      (return-from main-handler (h:require-authorization "File Server")))
+    (let* ((abs-path (u:join-paths *document-root* path))
+            (user-id (db-user-id user password))
+            (method (h:request-method h:*request*)))
+      (u:log-it :debug "User=~a; UserID=~a; Password=~a; Method=~a; Path=~a; AbsPath=~a" 
+        user user-id password method path abs-path)
+      ;; Is user authorized?
+      (unless user-id
+        (return-from main-handler (h:require-authorization "File Server")))
+      (u:log-it :info "User is authorized")
+      ;; Is the method GET?
+      (unless (eql method :get)
+        (u:log-it :error (format nil "~a; username=~a; method=~a; path=~a;"
+                           "Method not allowed" user method path))
+        (setf (h:return-code h:*reply*) 405)
         (return-from main-handler "Method Not Allowed"))
-    (dbug "Method is GET~%")
-    ;; Does the file or directory exist?
-    (unless (or (file-exists-p abs-path) (directory-exists-p abs-path))
-      (log-event "file-not-found"
-        (format nil "~a; username=~a; method=~a; path=~a;~%"
-          "File not found" user method path))
-      (setf (return-code *reply*) 404)
-      (return-from main-handler "Not Found"))
-    (dbug "File or directory exists ~a~%" abs-path)
-    ;; Does the user have access to the path?
-    (unless (has-access user path)
-      (dbug "Access denied to path=~a for user=~a; password=~a;~%"
-        path user password)
-      (log-event "permission-denied"
-        (dbug "~a; username=~a; method=~a; path=~a;~%"
-              "User lacks access" user method path))
-          (setf (return-code *reply*) 403)
-      (return-from main-handler "Forbidden"))
-    (dbug "User ~a has access to directory or file ~a~%"
-      user path)
-    ;; Access OK
-    (if (eql (path-type abs-path) :directory)
-      (progn
-        (dbug "~a is a directory~%" path)
-        (list-directory path abs-path))
-      (progn
-        (dbug "~a is a file~%" path)
-        (handle-static-file abs-path))))))
+      (u:log-it :debug "Method is GET")
+      ;; Does the file or directory exist?
+      (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
+        (u:log-it :error (format nil "~a; username=~a; method=~a; path=~a;"
+                           "File not found" user method path))
+        (setf (h:return-code h:*reply*) 404)
+        (return-from main-handler "Not Found"))
+      (u:log-it :debug "File or directory exists ~a" abs-path)
+      ;; Does the user have access to the path?
+      (unless (has-read-access user path)
+        (u:log-it :info "~a; method=~a; path=~a; user=~a; password=~a;"
+          "Access denied" method path user password)
+        (setf (h:return-code h:*reply*) 403)
+        (return-from main-handler "Forbidden"))
+      (u:log-it :info "User ~a has access to directory or file ~a"
+        user path)
+      ;; Access OK
+      (if (eql (u:path-type abs-path) :directory)
+        (progn
+          (u:log-it :debug "~a is a directory" path)
+          (render-directory-listing user path abs-path))
+        (progn
+          (u:log-it :debug "~a is a file" path)
+          (h:handle-static-file abs-path))))))
 
-(defun start-server ()
-  (setf *server* (make-instance 'easy-acceptor
+(defun start-web-server ()
+  (setf *server* (make-instance 'h:easy-acceptor
                                 :port *http-port*
                                 :document-root *document-root*))
   (setf
-    *show-lisp-errors-p* t
-    (acceptor-persistent-connections-p *server*) nil)
-  (dbug "Server started on http://localhost:~a~%" *http-port*)
-  (start *server*))
+    h:*show-lisp-errors-p* t
+    (h:acceptor-persistent-connections-p *server*) nil)
+  (u:log-it :info "Server started on http://localhost:~d" *http-port*)
+  (h:start *server*))
 
-;; Database
-(connect-toplevel
-  *database-name* 
-  *database-user*
-  *database-password*
-  *database-host*
-  :port *database-port*)
-(setf *root-user-id* (db-insert-root-user))
+(defun init-database ()
+  (setf *rbac* (make-instance 'a:rbac-pg
+                 :host *db-host*
+                 :port *db-port*
+                 :dbname *db-name*
+                 :username *db-username*
+                 :password *db-password*
+                 :resource-regex "^/([-_.a-zA-Z0-9 ]+/)*$"))
+  ;; Add root role if it doesn't exist
+  (unless (a:get-id *rbac* "roles" *root-role*)
+    (a:d-add-role *rbac* *root-role*
+      :description "The administrative role."))
+  ;; Add root user if it doesn't exist
+  (unless (a:get-id *rbac* "users" *root-username*)
+    (a:d-add-user *rbac* *root-username* *root-password* 
+      :roles (list *root-role*))))
 
-;; Swank server
-(swank:create-server 
-  :interface "0.0.0.0"
-  :port 4005
-  :style :spawn
-  :dont-close t)
+(defun run ()
+  ;; Initialize the database
+  (init-database)
 
-;; Web server
-(start-server)
-(loop while t do (sync-directories) (sleep 5))
+  ;; Start the Swank server
+  (swank:create-server 
+    :interface "0.0.0.0"
+    :port 4005
+    :style :spawn
+    :dont-close t)
+
+  ;; Start the Web server
+  (start-web-server)
+
+  ;; Continuously sync the file system directories with the rbac resources
+  ;; (directories, as tracked in the rbac system). If a new directory appears in
+  ;; the file system, it should be added to the rbac system.  If a directory goes
+  ;; missing from the file system, it should be removed from the rbac system.
+  (loop while t do (sync-directories) (sleep 5)))
