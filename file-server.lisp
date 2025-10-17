@@ -158,7 +158,7 @@ directory's ID if it does and NIL otherwise."
 (h:define-easy-handler (main-handler :uri "/files") (path)
   (u:log-it :debug "Processing request ~a" h:*request*)
   (u:log-it :debug "Authorization header: ~a" (h:header-in "authorization" h:*request*))
-  (multiple-value-bind (user password) (authorization)
+  (multiple-value-bind (user password) (h:authorization)
     (unless user
       (return-from main-handler (h:require-authorization "File Server")))
     (let* ((abs-path (u:join-paths *document-root* path))
