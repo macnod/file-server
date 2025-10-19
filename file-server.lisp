@@ -263,4 +263,6 @@ directory's ID if it does and NIL otherwise."
   ;; (directories, as tracked in the rbac system). If a new directory appears in
   ;; the file system, it should be added to the rbac system.  If a directory goes
   ;; missing from the file system, it should be removed from the rbac system.
-  (loop while *directory-syncing* do (sync-directories) (sleep 5)))
+  (loop while t
+    when *directory-syncing* do (sync-directories)
+    do (sleep 5)))
