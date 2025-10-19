@@ -30,6 +30,7 @@
 (defparameter *swank-server* nil)
 (defparameter *root-userid* nil)
 (defparameter *rbac* nil)
+(defparameter *directory-syncing* t)
 
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
@@ -154,7 +155,7 @@ directory's ID if it does and NIL otherwise."
     (get-current-datetime)))
 
 (h:define-easy-handler (root :uri "/") ()
-  (h:redirect "https://files.sinistercode.com/files?path=/"))
+  (h:redirect "/files?path=/"))
 
 (h:define-easy-handler (main-handler :uri "/files") (path)
   (u:log-it :debug "Processing request ~a" h:*request*)
@@ -262,4 +263,4 @@ directory's ID if it does and NIL otherwise."
   ;; (directories, as tracked in the rbac system). If a new directory appears in
   ;; the file system, it should be added to the rbac system.  If a directory goes
   ;; missing from the file system, it should be removed from the rbac system.
-  (loop while t do (sync-directories) (sleep 5)))
+  (loop while *directory-syncing* do (sync-directories) (sleep 5)))
