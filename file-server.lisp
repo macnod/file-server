@@ -26,7 +26,8 @@
   (intern (string-upcase (or (u:getenv "LOG_SEVERITY") "DEBUG")) :keyword))
 
 ;; Other
-(defparameter *server* nil)
+(defparameter *http-server* nil)
+(defparameter *swank-server* nil)
 (defparameter *root-userid* nil)
 (defparameter *rbac* nil)
 
@@ -42,19 +43,19 @@ directory's ID if it does and NIL otherwise."
   (a:list-resource-names *rbac*))
 
 (defun fs-list-directories ()
-  (mapcar
-    (lambda (dir) (subseq
-                    (format nil "~a" dir)
-                    (1- (length *document-root*))))
-    (directory (format nil "~a**/" *document-root*))))
+  (let* ((dirs (mapcar 
+                 (lambda (d) (format nil "~a" d))
+                 (directory (format nil "~a**/" *document-root*))))
+          (l (1- (length (u:root-path dirs)))))
+    (mapcar (lambda (dir) (subseq dir l)) dirs)))
 
 (defun sync-directories ()
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (db-list-directories))
           (added (loop 
                    for dir in fs-dirs
-                   when (db-directory-id dir)
-                   do (a:d-add-resource *rbac* dir :roles '(*root-role*))
+                   unless (db-directory-id dir)
+                   do (a:d-add-resource *rbac* dir :roles (list *root-role*))
                    and collect dir))
           (removed (loop for dir in db-dirs
                      unless (member dir fs-dirs :test 'equal)
@@ -158,6 +159,7 @@ directory's ID if it does and NIL otherwise."
 (h:define-easy-handler (main-handler :uri "/files") (path)
   (u:log-it :debug "Processing request ~a" h:*request*)
   (u:log-it :debug "Authorization header: ~a" (h:header-in "authorization" h:*request*))
+  (unless path (setf path "/"))
   (multiple-value-bind (user password) (h:authorization)
     (unless user
       (return-from main-handler (h:require-authorization "File Server")))
@@ -202,16 +204,19 @@ directory's ID if it does and NIL otherwise."
           (h:handle-static-file abs-path))))))
 
 (defun start-web-server ()
-  (setf *server* (make-instance 'h:easy-acceptor
-                                :port *http-port*
-                                :document-root *document-root*))
+  (setf *http-server* (make-instance 'h:easy-acceptor
+                        :port *http-port*
+                        :document-root *document-root*))
   (setf
     h:*show-lisp-errors-p* t
-    (h:acceptor-persistent-connections-p *server*) nil)
+    (h:acceptor-persistent-connections-p *http-server*) nil)
   (u:log-it :info "Server started on http://localhost:~d" *http-port*)
-  (h:start *server*))
+  (h:start *http-server*))
 
 (defun init-database ()  
+  (u:log-it :info
+    "host=~a; port=~a; db=~a; user=~a; password=~a"
+    *db-host* *db-port* *db-name* *db-username* *db-password*)
   (setf *rbac* (make-instance 'a:rbac-pg
                  :host *db-host*
                  :port *db-port*
@@ -230,19 +235,26 @@ directory's ID if it does and NIL otherwise."
   *rbac*)
 
 (defun run ()
+  (u:open-log *log-file* :severity-threshold *log-severity-threshold*)
+  (u:log-it :info "Initializing database")
   ;; Initialize the database
   (let ((success (handler-case (init-database)
                    (error (condition)
                      (u:log-it :error (format nil "~a" condition))
                      nil))))
+    (u:log-it :debug "Database initialization: ~a"
+      (if success "success" "failure"))
 
     ;; Start the Swank server
-    (swank:create-server 
-      :interface "0.0.0.0"
-      :port 4005
-      :style :spawn
-      :dont-close t)
-    (when success
+    (unless *swank-server*
+      (u:log-it :info "Starting Swank")
+      (setf *swank-server*
+        (swank:create-server 
+          :interface "0.0.0.0"
+          :port 4005
+          :style :spawn
+          :dont-close t)))
+    (when (and success (not *http-server*))
       ;; Start the Web server
       (start-web-server)))
 

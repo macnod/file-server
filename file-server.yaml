@@ -77,10 +77,10 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/file-server:latest
+          image: macnod/file-server:0.1
           imagePullPolicy: Never
           command: ["ros"]
-          args: 
+          args:
             - "run"
             - "--"
             - "--eval"
@@ -95,7 +95,7 @@ spec:
           env:
             # Database connection
             - name: DB_HOST
-              value: "postgres"
+              value: "postgres-service"
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
@@ -117,6 +117,8 @@ spec:
                   key: root-user-password
             - name: LOG_SEVERITY
               value: debug
+            # - name: LOG_FILE
+            #   value: "/app/logs/file-server.log"
           volumeMounts:
             - mountPath: /app
               name: file-server-volume

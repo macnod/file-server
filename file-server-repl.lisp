@@ -5,5 +5,7 @@
 (defparameter *db-password* (dc-eclectic:setenv "DB_PASSWORD" "fileserver-password"))
 (defparameter *root-username* (dc-eclectic:setenv "ROOT_USER" "admin"))
 (defparameter *root-password* (dc-eclectic:setenv "ROOT_PASSWORD" "admin-password-123"))
-(dc-eclectic:setenv "FS_DOCUMENT_ROOT" "/home/macnod/r/file-server/files")
-(dc-eclectic:setenv "LOG_FILE" "/home/macnod/r/file-server/logs/file-server.log")
+(defparameter *document-root*
+  (dc-eclectic:setenv "FS_DOCUMENT_ROOT" "/home/macnod/common-lisp/file-server/files/"))
+(defparameter *log-file*
+  (dc-eclectic:setenv "LOG_FILE" "/home/macnod/common-lisp/file-server/logs/file-server.log"))
