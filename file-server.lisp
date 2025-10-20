@@ -76,11 +76,9 @@ should correspond exactly to the directories in the file system."
                      do (a:d-remove-resource *rbac* dir)
                      and collect dir)))
     (when added
-      (u:log-it :info "added directorie~p: ~{~a~^, ~}" 
-        (length added) added))
+      (u:log-it :info "added directories: ~{~a~^, ~}" added))
     (when removed
-      (u:log-it :info "removed directorie~p: ~{~a~^, ~}"
-        (length removed) removed))))
+      (u:log-it :info "removed directories: ~{~a~^, ~}" removed))))
 
 (defun clean-path (path)
   "Returns the path portion of PATH, which must be a string that starts with a
