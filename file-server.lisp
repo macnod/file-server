@@ -51,6 +51,7 @@ directory's ID if it does and NIL otherwise."
     (mapcar (lambda (dir) (subseq dir l)) dirs)))
 
 (defun sync-directories ()
+  (u:log-it :debug "Syncing directories")
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (db-list-directories))
           (added (loop 
@@ -70,9 +71,16 @@ directory's ID if it does and NIL otherwise."
         (length removed) removed))))
                      
 (defun clean-path (path)
+  "Returns the path portion of PATH, which must be a string that starts with a
+slash. If PATH points to a directory, then this function adds the trailing slash
+if necessary. Otherwise, if PATH points to a file, this function removes the
+file name and returns the path to the file with a trailing slash."
   (if (equal path "/")
     path
-    (let* ((path-only (u:path-only path))
+    (let* ((abs-path (u:join-paths *document-root* path))
+            (path-only (if (eql (u:path-type abs-path) :directory)
+                         path
+                         (u:path-only path)))
             (clean-path (if (equal path-only "/")
                           "/"
                           (format nil "/~a/" (string-trim "/" path-only)))))
@@ -165,6 +173,7 @@ directory's ID if it does and NIL otherwise."
     (unless user
       (return-from main-handler (h:require-authorization "File Server")))
     (let* ((abs-path (u:join-paths *document-root* path))
+            (path-only (clean-path path))
             (user-id (db-user-id user password))
             (method (h:request-method h:*request*)))
       (u:log-it :debug "User=~a; UserID=~a; Password=~a; Method=~a; Path=~a; AbsPath=~a" 
@@ -188,13 +197,13 @@ directory's ID if it does and NIL otherwise."
         (return-from main-handler "Not Found"))
       (u:log-it :debug "File or directory exists ~a" abs-path)
       ;; Does the user have access to the path?
-      (unless (has-read-access user path)
+      (unless (has-read-access user path-only)
         (u:log-it :info "~a; method=~a; path=~a; user=~a; password=~a;"
           "Access denied" method path user password)
         (setf (h:return-code h:*reply*) 403)
         (return-from main-handler "Forbidden"))
-      (u:log-it :info "User ~a has access to directory or file ~a"
-        user path)
+      (u:log-it :info "User ~a has access to directory ~a"
+        user path-only)
       ;; Access OK
       (if (eql (u:path-type abs-path) :directory)
         (progn
@@ -265,4 +274,4 @@ directory's ID if it does and NIL otherwise."
   ;; missing from the file system, it should be removed from the rbac system.
   (loop while t
     when *directory-syncing* do (sync-directories)
-    do (sleep 5)))
+    do (sleep 10)))
