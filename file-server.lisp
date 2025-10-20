@@ -168,6 +168,17 @@ file name and returns the path to the file with a trailing slash."
     (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d"
             year month day hour minute second)))
 
+(defmethod h:acceptor-log-message ((acceptor h:easy-acceptor) 
+                                    log-level
+                                    (format-string string)
+                                    &rest format-arguments)
+  (let ((log-severity (case log-level
+                        (:error :error)
+                        (:warning :warn)
+                        (:info :info)
+                        (otherwise :debug))))
+    (funcall #'u:log-it log-severity format-string format-arguments)))
+
 (h:define-easy-handler (health :uri "/health") ()
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (get-current-datetime)))
