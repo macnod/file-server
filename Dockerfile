@@ -41,8 +41,8 @@ RUN $ROSWELL install macnod/dc-dlist
 RUN $ROSWELL install macnod/dc-eclectic
 
 ARG CACHEBUST=1
-  RUN $ROSWELL install macnod/rbac && \
-  RUN $ROSWELL install macnod/file-server
+RUN $ROSWELL install macnod/rbac && \
+    $ROSWELL install macnod/file-server
 
 RUN $ROSWELL install postmodern
 RUN $ROSWELL install uiop
