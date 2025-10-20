@@ -48,9 +48,21 @@ directory's ID if it does and NIL otherwise."
                  (lambda (d) (format nil "~a" d))
                  (directory (format nil "~a**/" *document-root*))))
           (l (1- (length (u:root-path dirs)))))
-    (mapcar (lambda (dir) (subseq dir l)) dirs)))
+    (when dirs
+      (sort
+        (mapcar (lambda (dir) (subseq dir l)) dirs)
+        #'string<))))
+
+(defun hash-directory-list (directory-list)
+  (if directory-list
+    (u:hash-string (format nil "~{~a~^|~}" directory-list))
+    ""))
 
 (defun sync-directories ()
+  "Ensures that directories that have been added to the file system are added to
+the RBAC database, and that directories that have been removed from the file
+system are removed from the RBAC database. The resources in the RBAC database
+should correspond exactly to the directories in the file system."
   (u:log-it :debug "Syncing directories")
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (db-list-directories))
@@ -69,7 +81,7 @@ directory's ID if it does and NIL otherwise."
     (when removed
       (u:log-it :info "removed directorie~p: ~{~a~^, ~}"
         (length removed) removed))))
-                     
+
 (defun clean-path (path)
   "Returns the path portion of PATH, which must be a string that starts with a
 slash. If PATH points to a directory, then this function adds the trailing slash
@@ -244,6 +256,18 @@ file name and returns the path to the file with a trailing slash."
       :roles (list *root-role*)))
   *rbac*)
 
+(defun periodic-directory-sync ()
+  ;; Continuously sync the file system directories with the rbac resources
+  ;; (directories, as tracked in the rbac system). If a new directory appears in
+  ;; the file system, it should be added to the rbac system.  If a directory goes
+  ;; missing from the file system, it should be removed from the rbac system.
+  (loop while *directory-syncing*
+    for old-hash = "" then new-hash
+    for new-hash = (hash-directory-list (fs-list-directories))
+    unless (equal old-hash new-hash)
+    do (sync-directories)
+    do (sleep 5)))
+
 (defun run ()
   (u:open-log *log-file* :severity-threshold *log-severity-threshold*)
   (u:log-it :info "Initializing database")
@@ -266,12 +290,8 @@ file name and returns the path to the file with a trailing slash."
           :dont-close t)))
     (when (and success (not *http-server*))
       ;; Start the Web server
-      (start-web-server)))
-
-  ;; Continuously sync the file system directories with the rbac resources
-  ;; (directories, as tracked in the rbac system). If a new directory appears in
-  ;; the file system, it should be added to the rbac system.  If a directory goes
-  ;; missing from the file system, it should be removed from the rbac system.
-  (loop while t
-    when *directory-syncing* do (sync-directories)
-    do (sleep 10)))
+      (start-web-server))
+    (loop while t do
+      (periodic-directory-sync)
+      (sleep 5))))
+      
