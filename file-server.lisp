@@ -32,6 +32,41 @@
 (defparameter *rbac* nil)
 (defparameter *directory-syncing* t)
 
+;;
+;; Custom Hunchentoot acceptor, for log-it logging
+;;
+
+(defclass fs-acceptor (h:easy-acceptor)
+  ())
+
+(defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
+  "Override to route access logs through u:log-it."
+  (u:log-it-pairs :info
+    :remote (h:remote-addr*)
+    :server (h:local-addr*)
+    :host (h:host)
+    :method (h:request-method*)
+    :uri (h:request-uri*)
+    :return-code (h:return-code*)
+    :status return-code
+    :content-length (or (h:content-length*) 0)
+    :referer (h:referer)
+    :agent (h:user-agent)))
+
+(defmethod h:acceptor-log-message ((acceptor fs-acceptor) 
+                                    log-level
+                                    format-string &rest format-arguments)
+  (let* ((log-severity (case log-level
+                         (:error :error)
+                         (:warning :warn)
+                         (:info :info)
+                         (t :debug)))
+          (params (append (list log-severity format-string) format-arguments)))
+    (apply #'u:log-it params)))
+;;
+;; End custom Hunchentoot acceptor
+;;
+
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
 directory's ID if it does and NIL otherwise."
@@ -235,7 +270,7 @@ file name and returns the path to the file with a trailing slash."
           (h:handle-static-file abs-path))))))
 
 (defun start-web-server ()
-  (setf *http-server* (make-instance 'h:easy-acceptor
+  (setf *http-server* (make-instance 'fs-acceptor
                         :port *http-port*
                         :document-root *document-root*))
   (setf
