@@ -41,17 +41,23 @@
 
 (defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
   "Override to route access logs through u:log-it."
-  (u:log-it-pairs :info
-    :remote (h:remote-addr*)
-    :server (h:local-addr*)
-    :host (h:host)
-    :method (h:request-method*)
-    :uri (h:request-uri*)
-    :return-code (h:return-code*)
-    :status return-code
-    :content-length (or (h:content-length*) 0)
-    :referer (h:referer)
-    :agent (h:user-agent)))
+  (let ((log-severity (cond 
+                        ((equal (h:request-uri*) "/health") :debug)
+                        ((< (h:return-code*) 300) :info)
+                        ((< (h:return-code*) 500) :warn)
+                        (t :error))))
+    (u:log-it-pairs log-severity
+      :type "access"
+      :remote (h:remote-addr*)
+      :server (h:local-addr*)
+      :host (h:host)
+      :method (h:request-method*)
+      :uri (h:request-uri*)
+      :return-code (h:return-code*)
+      :status return-code
+      :content-length (or (h:content-length*) 0)
+      :referer (h:referer)
+      :agent (h:user-agent))))
 
 (defmethod h:acceptor-log-message ((acceptor fs-acceptor) 
                                     log-level
@@ -156,6 +162,16 @@ file name and returns the path to the file with a trailing slash."
           (subseq (namestring p) (1- (length *document-root*))))
         (uiop:subdirectories path)))))
 
+(defun page (content &key subtitle)
+  (let ((title "Donnie's Bad-Ass File Server"))
+    (s:with-html-string
+      (:html
+        (:head (:title title))
+        (:body
+          (:h1 title)
+          (when subtitle (:h2 subtitle))
+          content)))))
+
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
@@ -179,10 +195,12 @@ file name and returns the path to the file with a trailing slash."
     (u:log-it :debug "Files: ~{~a~^, ~}" files)
     (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
     (format nil "<h1>Donnie's Bad-Ass File Server</h1>
+<p>~a</p>
 <h2>~a</h2>
 <ul>
 ~{~a~^~%~}~{~a~^~%~}~%
 </ul>"
+      user
       crumbs
       (mapcar
         (lambda (d)
@@ -240,15 +258,15 @@ file name and returns the path to the file with a trailing slash."
       (u:log-it :info "User is authorized")
       ;; Is the method GET?
       (unless (eql method :get)
-        (u:log-it :error (format nil "~a; username=~a; method=~a; path=~a;"
-                           "Method not allowed" user method path))
+        (u:log-it :warn (format nil "~a; username=~a; method=~a; path=~a;"
+                          "Method not allowed" user method path))
         (setf (h:return-code h:*reply*) 405)
         (return-from main-handler "Method Not Allowed"))
       (u:log-it :debug "Method is GET")
       ;; Does the file or directory exist?
       (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
-        (u:log-it :error (format nil "~a; username=~a; method=~a; path=~a;"
-                           "File not found" user method path))
+        (u:log-it :warn (format nil "~a; username=~a; method=~a; path=~a;"
+                          "File not found" user method path))
         (setf (h:return-code h:*reply*) 404)
         (return-from main-handler "Not Found"))
       (u:log-it :debug "File or directory exists ~a" abs-path)

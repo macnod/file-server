@@ -36,16 +36,22 @@ WORKDIR /
 RUN rm -rf $ROSWELL_SRC_DIR
 RUN $ROSWELL setup
 
-RUN $ROSWELL install postmodern
-RUN $ROSWELL install uiop
-RUN $ROSWELL install cl-ppcre
-RUN $ROSWELL install hunchentoot
-RUN $ROSWELL install swank
+# 3rd-party packages
+RUN $ROSWELL install postmodern && \
+    $ROSWELL install uiop && \
+    $ROSWELL install cl-ppcre && \
+    $ROSWELL install hunchentoot && \
+    $ROSWELL install swank && \
+    $ROSWELL install spinneret && \
+    $ROSWELL install trivial-utf-8 && \
+    $ROSWELL install ironclad
 
-RUN $ROSWELL install macnod/dc-ds
-RUN $ROSWELL install macnod/dc-dlist
-RUN $ROSWELL install macnod/dc-eclectic
+# stable macnod packages
+RUN $ROSWELL install macnod/dc-ds && \
+    $ROSWELL install macnod/dc-dlist
 
+# changing macnod packages
 ARG CACHEBUST=1
-RUN $ROSWELL install macnod/rbac && \
+RUN $ROSWELL install macnod/dc-eclectic && \
+    $ROSWELL install macnod/rbac && \
     $ROSWELL install macnod/file-server

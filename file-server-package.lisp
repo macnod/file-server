@@ -4,6 +4,5 @@
     (:a :rbac)
     (:u :dc-eclectic)
     (:re :ppcre)
-    (:h :hunchentoot)))
-
-    
+    (:h :hunchentoot)
+    (:s :spinneret)))
