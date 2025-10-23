@@ -15,7 +15,8 @@
 (defparameter *root-role* "admin")
 
 ;; JWT Secret
-(defparameter *jwt-secret* (b:string-to-octets (u:getenv "JWT_SECRET")))
+(defparameter *jwt-secret* 
+  (b:string-to-octets (u:getenv "JWT_SECRET" :default "32-char secret")))
 
 ;; Javascript
 (defparameter *web-directory* (u:getenv "WEB_DIRECTORY"
