@@ -252,16 +252,27 @@ file name and returns the path to the file with a trailing slash."
     (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
     (page (s:with-html-string
             (:h2 (:raw crumbs))
-            (mapcar
-              (lambda (d)
-                (:li (:a :href (format nil "/files?path=~a" d)
-                       (u:leaf-directory-only d))))
-              subdirs)
-            (mapcar
-              (lambda (f)
-                (:li (:a :href (format nil "/files?path=~a" f)
-                       (u:filename-only f))))
-              files))
+            ;; Directories
+            (:ul :style "list-style-type: none;"
+              (mapcar
+                (lambda (d)
+                  (:li (:a :href (format nil "/files?path=~a" d)
+                         (:img :src "/image?name=folder.png" 
+                           :width 16 :height 16)
+                         " "
+                         (u:leaf-directory-only d))))
+                subdirs))
+            ;; Files
+            (:ul :style "list-style-type: none;"
+              (mapcar
+                (lambda (f)
+                  (:li (:a :href (format nil "/files?path=~a" f)
+                         :target "_blank"
+                         (:img :src "/image?name=file.png" 
+                           :width 16 :height 16)
+                         " "
+                         (u:filename-only f))))
+                files)))
       :user user)))
 
 (defmethod h:acceptor-log-message ((acceptor h:easy-acceptor)
@@ -324,6 +335,9 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
+
+(h:define-easy-handler (image :uri "/image") (name width height)
+  (h:handle-static-file (u:join-paths *web-directory* name)))
 
 (h:define-easy-handler (root :uri "/") ()
   (h:redirect "/files?path=/"))
