@@ -77,7 +77,7 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/file-server:0.85
+          image: macnod/file-server:0.86
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -122,10 +122,8 @@ spec:
                   key: jwt-secret
             - name: LOG_SEVERITY
               value: debug
-            # - name: LOG_FILE
-            #   value: "/app/logs/file-server.log"
-            - name: FRONT_END_DIRECTORY
-              value: "/app/js"
+            - name: WEB_DIRECTORY
+              value: "/app/web"
           volumeMounts:
             - mountPath: /app
               name: file-server-volume
