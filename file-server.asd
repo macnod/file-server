@@ -10,5 +10,6 @@
                 :spinneret
                 :dc-ds)
   :serial t
-  :components ((:file "file-server-package")
-                (:file "file-server")))
+  :components ((:module "lisp"
+                 :components ((:file "file-server-package")
+                               (:file "file-server")))))
