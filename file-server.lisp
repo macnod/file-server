@@ -10,7 +10,7 @@
 
 ;; User
 (defparameter *root-username* (u:getenv "ROOT_USER" :default "admin"))
-(defparameter *root-password* (u:getenv "ROOT_PASSWORD" 
+(defparameter *root-password* (u:getenv "ROOT_PASSWORD"
                                 :default "admin-password"))
 (defparameter *root-role* "admin")
 
@@ -26,13 +26,13 @@
 
 ;; HTTP and Swank servers
 (defparameter *http-port* (u:getenv "HTTP_PORT" :default 8080 :type :integer))
-(defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT" 
+(defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT"
                                 :default "/app/shared-files/"))
 (defparameter *swank-port* (u:getenv "SWANK_PORT" :default 4005 :type :integer))
 
 ;; Logs
 (defparameter *log-file* (or (u:getenv "LOG_FILE") *standard-output*))
-(defparameter *log-severity-threshold* 
+(defparameter *log-severity-threshold*
   (intern (string-upcase (or (u:getenv "LOG_SEVERITY") "DEBUG")) :keyword))
 
 ;; Other
@@ -58,7 +58,7 @@ exists. Otherwise, logs a message and returns NIL."
       (declare (ignore headers sig))
       (when claims
         (let ((user-id (cdr (assoc "sub" claims :test #'string=))))
-          (if user-id 
+          (if user-id
             (let ((user (handler-case
                           (a:get-value *rbac* "users" "username"
                             "id" user-id)
@@ -78,7 +78,7 @@ exists. Otherwise, logs a message and returns NIL."
     (error (e)
       (u:log-it :warn "Invalid JWT: ~a" e)
       nil)))
-      
+
 ;;
 ;; Custom Hunchentoot acceptor, for log-it logging
 ;;
@@ -88,7 +88,7 @@ exists. Otherwise, logs a message and returns NIL."
 
 (defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
   "Override to route access logs through u:log-it."
-  (let ((log-severity (cond 
+  (let ((log-severity (cond
                         ((equal (h:request-uri*) "/health") :debug)
                         ((< (h:return-code*) 300) :info)
                         ((< (h:return-code*) 500) :warn)
@@ -106,7 +106,7 @@ exists. Otherwise, logs a message and returns NIL."
       :referer (h:referer)
       :agent (h:user-agent))))
 
-(defmethod h:acceptor-log-message ((acceptor fs-acceptor) 
+(defmethod h:acceptor-log-message ((acceptor fs-acceptor)
                                     log-level
                                     format-string &rest format-arguments)
   (let* ((log-severity (case log-level
@@ -132,7 +132,7 @@ directory's ID if it does and NIL otherwise."
   (a:list-resource-names *rbac*))
 
 (defun fs-list-directories ()
-  (let* ((dirs (mapcar 
+  (let* ((dirs (mapcar
                  (lambda (d) (format nil "~a" d))
                  (directory (format nil "~a**/" *document-root*))))
           (l (1- (length (u:root-path dirs)))))
@@ -154,7 +154,7 @@ should correspond exactly to the directories in the file system."
   (u:log-it :debug "Syncing directories")
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (db-list-directories))
-          (added (loop 
+          (added (loop
                    for dir in fs-dirs
                    unless (db-directory-id dir)
                    do (a:d-add-resource *rbac* dir :roles (list *root-role*))
@@ -192,7 +192,7 @@ file name and returns the path to the file with a trailing slash."
   (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
-    (mapcar 
+    (mapcar
       (lambda (p)
         (subseq (namestring p) (1- (length *document-root*))))
       (uiop:directory-files path))))
@@ -201,7 +201,7 @@ file name and returns the path to the file with a trailing slash."
   (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
-    (remove-if-not 
+    (remove-if-not
       (lambda (path)
         (has-read-access user path))
       (mapcar
@@ -215,11 +215,16 @@ file name and returns the path to the file with a trailing slash."
       (:doctype)
       (:html
         (:head
-          (:title title)
-          (:script :src "/js"))
+          (:title title))
         (:body
           (when user
-            (:p :class "user" user (:button :id "logout" "Logout")))
+            (:p :class "user"
+              user
+              (:form
+                :id "logout-form"
+                :action "/logout"
+                :method "get"
+                (:button :type "submit" "Logout"))))
           (:h1 title)
           (when subtitle (:h2 subtitle))
           (:raw content))))))
@@ -261,7 +266,7 @@ file name and returns the path to the file with a trailing slash."
               files))
       :user user)))
 
-(defmethod h:acceptor-log-message ((acceptor h:easy-acceptor) 
+(defmethod h:acceptor-log-message ((acceptor h:easy-acceptor)
                                     log-level
                                     (format-string string)
                                     &rest format-arguments)
@@ -276,54 +281,44 @@ file name and returns the path to the file with a trailing slash."
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (u:timestamp-string)))
 
-(h:define-easy-handler (login-api :uri "/api/login") ()
-  (setf (h:content-type*) "application/json")
-  (handler-case
-    (let* ((raw-body (h:raw-post-data :force-text t))
-            (data (ds:from-json raw-body))
-            (username (ds:pick data "username"))
-            (password (ds:pick data "password")))
-      (u:log-it-pairs :debug :raw-body raw-body :data data)
-      (unless (and username password)
-        (setf (h:return-code*) h:+http-bad-request+)
-        (u:log-it :warn "Missing username or password")
-        (return-from login-api
-          (ds:to-json (ds:ds `(:map :error "Missing username or password")))))
+(h:define-easy-handler (login :uri "/login") (username password error)
+  (setf (h:content-type*) "text/html")
+  (u:log-it-pairs :debug :details "Login page" :username username :error error)
+  (cond
+    ((and (not error) (h:session-value :jwt-token))
+      (u:log-it :debug "jwt-token is present, redirecting to files")
+      (h:redirect "/files?path=/"))
+    ((and (not error) username password)
       (u:log-it :debug "Login attempt for user ~a" username)
       (let ((user-id (db-user-id username password)))
         (if user-id
           (let ((token (issue-jwt user-id)))
-            (u:log-it :info "Login successful for user ~a" username)
-            (h:set-cookie "jwt-token" :value token :path "/" :http-only t)
-            (ds:to-json (ds:ds `(:map :token ,token))))
+            (u:log-it :info "Login successful for user ~a, redirecting"
+              username)
+            (h:start-session)
+            (setf (h:session-value :jwt-token) token)
+            (h:redirect "/files?path=/"))
           (progn
-            (u:log-it :warn "Login failed for user ~a" username)
-            (setf (h:return-code*) h:+http-authorization-required+)
-            (ds:to-json (ds:ds `(:map :error "Invalid credentials")))))))
-    (error (e)
-      (setf (h:return-code*) h:+http-bad-request+)
-      (u:log-it :error "Invalid JSON payload: ~a" e)
-      (ds:to-json (ds:ds `(:map :error "Invalid JSON payload"))))))
-
-(h:define-easy-handler (login :uri "/login") ()
-  (setf (h:content-type*) "text/html")
-  (u:log-it :debug "Login page")
-  (page
-    (s:with-html-string
-      (:div :id "login-form"
-        (:form :id "login" :action "/api/login" :method "post" 
-          :onsubmit "event.preventDefault();"
-          (:input :type "text" :id "username" :placeholder "Username" 
-            :required t)
-          (:input :type "password" :id "password" :placeholder "Password"
-            :required t)
-          (:button :type "submit" "Login"))))
-    :subtitle "Login"))
+            (u:log-it :warn "Login failed for user ~a, render login error"
+              username)
+            (h:delete-session-value :jwt-token)
+            (h:redirect "/login?error=Invalid+username+or+password")))))
+    (t
+      (u:log-it :debug "Rendering login page")
+        (page
+          (s:with-html-string
+            (:div :id "login-form"
+              (when error (:p error))
+              (:form :id "login" :action "/login" :method "post"
+                (:input :type "text" :name "username" :placeholder "Username"
+                  :required t)
+                (:input :type "password" :name "password" :placeholder "Password"
+                  :required t)
+                (:button :type "submit" "Login"))))
+          :subtitle "Login"))))
 
 (h:define-easy-handler (logout :uri "/logout") ()
-  ;; Default for :value is the empty string
-  (h:set-cookie "jwt-token" :path "/" :http-only t)
-  ;; "jwt-token=; Path=/; HttpOnly; Secure; SameSite=Strict"
+  (h:delete-session-value :jwt-token)
   (h:redirect "/login"))
 
 (h:define-easy-handler (js :uri "/js") ()
@@ -340,7 +335,7 @@ file name and returns the path to the file with a trailing slash."
   (let* ((abs-path (u:join-paths *document-root* path))
           (path-only (clean-path path))
           (method (h:request-method*))
-          (token (h:cookie-in "jwt-token"))
+          (token (h:session-value :jwt-token))
           (user (when token (validate-jwt token))))
 
     (u:log-it-pairs :debug
@@ -365,7 +360,7 @@ file name and returns the path to the file with a trailing slash."
 
     ;; Does the file or directory exist?
     (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
-      (u:log-it-pairs :warn :details "Path not found" 
+      (u:log-it-pairs :warn :details "Path not found"
         :path path :abs-path abs-path :user user)
       (setf (h:return-code*) h:+http-not-found+)
       (return-from files-handler "Not Found"))
@@ -403,7 +398,7 @@ file name and returns the path to the file with a trailing slash."
   (h:stop *http-server*)
   (setf *http-server* nil))
 
-(defun init-database ()  
+(defun init-database ()
   (u:log-it :info
     "host=~a; port=~a; db=~a; user=~a; password=~a"
     *db-host* *db-port* *db-name* *db-username* *db-password*)
@@ -420,7 +415,7 @@ file name and returns the path to the file with a trailing slash."
       :description "The administrative role."))
   ;; Add root user if it doesn't exist
   (unless (a:get-id *rbac* "users" *root-username*)
-    (a:d-add-user *rbac* *root-username* *root-password* 
+    (a:d-add-user *rbac* *root-username* *root-password*
       :roles (list *root-role*)))
   *rbac*)
 
@@ -451,7 +446,7 @@ file name and returns the path to the file with a trailing slash."
     (unless *swank-server*
       (u:log-it :info "Starting Swank")
       (setf *swank-server*
-        (swank:create-server 
+        (swank:create-server
           :interface "0.0.0.0"
           :port 4005
           :style :spawn
@@ -462,4 +457,3 @@ file name and returns the path to the file with a trailing slash."
     (loop while t do
       (periodic-directory-sync)
       (sleep 5))))
-      
