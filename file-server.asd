@@ -8,6 +8,7 @@
                 :rbac
                 :swank
                 :spinneret
+                :jose
                 :dc-ds)
   :serial t
   :components ((:module "lisp"
