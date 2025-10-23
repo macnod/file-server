@@ -44,7 +44,9 @@ RUN $ROSWELL install postmodern && \
     $ROSWELL install swank && \
     $ROSWELL install spinneret && \
     $ROSWELL install trivial-utf-8 && \
-    $ROSWELL install ironclad
+    $ROSWELL install ironclad && \
+    $ROSWELL install babel && \
+    $ROSWELL install jose
 
 # stable macnod packages
 RUN $ROSWELL install macnod/dc-ds && \

@@ -14,6 +14,16 @@
                                 :default "admin-password"))
 (defparameter *root-role* "admin")
 
+;; JWT Secret
+(defparameter *jwt-secret* (b:string-to-octets
+                             (u:getenv "JWT_SECRET" :required t)))
+
+;; Javascript
+(defparameter *js-directory* (u:getenv "FRONT_END_DIRECTORY"
+                               :default "/app/js"))
+(defparameter *file-server-js* (u:join-paths *js-directory* "file-server.js"))
+(defparameter *favicon* "/app/favicon.ico")
+
 ;; HTTP and Swank servers
 (defparameter *http-port* (u:getenv "HTTP_PORT" :default 8080 :type :integer))
 (defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT" 
@@ -32,6 +42,43 @@
 (defparameter *rbac* nil)
 (defparameter *directory-syncing* t)
 
+(defun issue-jwt (user-id &optional (expiration-seconds 3600))
+  "Issue a JWT for a user."
+  (let* ((claims `(("sub" . ,user-id)
+                    ("exp" . ,(+ (u:universal-time-to-unix-time)
+                                expiration-seconds)))))
+    (j:encode :hs256 *jwt-secret* claims)))
+
+(defun validate-jwt (token)
+  "Validate a JWT token. Returns username if JWT token validates and user
+exists. Otherwise, logs a message and returns NIL."
+  (handler-case
+    (multiple-value-bind (claims headers sig)
+      (jose:decode :hs256 *jwt-secret* token)
+      (declare (ignore headers sig))
+      (when claims
+        (let ((user-id (cdr (assoc "sub" claims :test #'string=))))
+          (if user-id 
+            (let ((user (handler-case
+                          (a:get-value *rbac* "users" "username"
+                            "id" user-id)
+                          (error (e)
+                            (u:log-it
+                              :warn
+                              "JWT has invalid user ID: ~a" e)
+                            nil))))
+              (if user
+                user
+                (progn
+                  (u:log-it :warn "User with ID ~a not found" user-id)
+                  nil)))
+            (progn
+              (u:log-it :warn "User ID not found in JWT")
+              nil)))))
+    (error (e)
+      (u:log-it :warn "Invalid JWT: ~a" e)
+      nil)))
+      
 ;;
 ;; Custom Hunchentoot acceptor, for log-it logging
 ;;
@@ -162,15 +209,20 @@ file name and returns the path to the file with a trailing slash."
           (subseq (namestring p) (1- (length *document-root*))))
         (uiop:subdirectories path)))))
 
-(defun page (content &key subtitle)
+(defun page (content &key subtitle user)
   (let ((title "Donnie's Bad-Ass File Server"))
     (s:with-html-string
+      (:doctype)
       (:html
-        (:head (:title title))
+        (:head
+          (:title title)
+          (:script :src "/js"))
         (:body
+          (when user
+            (:p :class "user" user (:button :id "logout" "Logout")))
           (:h1 title)
           (when subtitle (:h2 subtitle))
-          content)))))
+          (:raw content))))))
 
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
@@ -187,39 +239,27 @@ file name and returns the path to the file with a trailing slash."
                    for parent-name = "root" then part
                    collect (if last
                              (format nil "~a" parent-name)
-                             (format nil "<a href=\"?path=~a\">~a</a>"
-                               parent-path parent-name))
+                             (s:with-html-string
+                               (:a :href (format nil "?path=~a" parent-path)
+                                 parent-name)))
                    into breadcrumbs
                    finally (return (format nil "~{~a~^/~}" breadcrumbs)))))
     (u:log-it :info "List directories")
     (u:log-it :debug "Files: ~{~a~^, ~}" files)
     (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
-    (format nil "<h1>Donnie's Bad-Ass File Server</h1>
-<p>~a</p>
-<h2>~a</h2>
-<ul>
-~{~a~^~%~}~{~a~^~%~}~%
-</ul>"
-      user
-      crumbs
-      (mapcar
-        (lambda (d)
-          (format nil "<li><a href=\"/files?path=~a\">~a</a></li>" 
-            d 
-            (u:leaf-directory-only d)))
-        subdirs)
-      (mapcar 
-        (lambda (f)
-          (format nil "<li><a href=\"/files?path=~a\">~a</a></li>" 
-            f 
-            (u:filename-only f)))
-        files))))
-
-(defun get-current-datetime ()
-  (multiple-value-bind (second minute hour day month year)
-      (decode-universal-time (get-universal-time))
-    (format nil "~4,'0d-~2,'0d-~2,'0d ~2,'0d:~2,'0d:~2,'0d"
-            year month day hour minute second)))
+    (page (s:with-html-string
+            (:h2 (:raw crumbs))
+            (mapcar
+              (lambda (d)
+                (:li (:a :href (format nil "/files?path=~a" d)
+                       (u:leaf-directory-only d))))
+              subdirs)
+            (mapcar
+              (lambda (f)
+                (:li (:a :href (format nil "/files?path=~a" f)
+                       (u:filename-only f))))
+              files))
+      :user user)))
 
 (defmethod h:acceptor-log-message ((acceptor h:easy-acceptor) 
                                     log-level
@@ -234,58 +274,120 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (health :uri "/health") ()
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
-    (get-current-datetime)))
+    (u:timestamp-string)))
+
+(h:define-easy-handler (login-api :uri "/api/login") ()
+  (setf (h:content-type*) "application/json")
+  (handler-case
+    (let* ((raw-body (h:raw-post-data :force-text t))
+            (data (ds:from-json raw-body))
+            (username (ds:pick data "username"))
+            (password (ds:pick data "password")))
+      (u:log-it-pairs :debug :raw-body raw-body :data data)
+      (unless (and username password)
+        (setf (h:return-code*) h:+http-bad-request+)
+        (u:log-it :warn "Missing username or password")
+        (return-from login-api
+          (ds:to-json (ds:ds `(:map :error "Missing username or password")))))
+      (u:log-it :debug "Login attempt for user ~a" username)
+      (let ((user-id (db-user-id username password)))
+        (if user-id
+          (let ((token (issue-jwt user-id)))
+            (u:log-it :info "Login successful for user ~a" username)
+            (h:set-cookie "jwt-token" :value token :path "/" :http-only t)
+            (ds:to-json (ds:ds `(:map :token ,token))))
+          (progn
+            (u:log-it :warn "Login failed for user ~a" username)
+            (setf (h:return-code*) h:+http-authorization-required+)
+            (ds:to-json (ds:ds `(:map :error "Invalid credentials")))))))
+    (error (e)
+      (setf (h:return-code*) h:+http-bad-request+)
+      (u:log-it :error "Invalid JSON payload: ~a" e)
+      (ds:to-json (ds:ds `(:map :error "Invalid JSON payload"))))))
+
+(h:define-easy-handler (login :uri "/login") ()
+  (setf (h:content-type*) "text/html")
+  (u:log-it :debug "Login page")
+  (page
+    (s:with-html-string
+      (:div :id "login-form"
+        (:form :id "login" :action "/api/login" :method "post" 
+          :onsubmit "event.preventDefault();"
+          (:input :type "text" :id "username" :placeholder "Username" 
+            :required t)
+          (:input :type "password" :id "password" :placeholder "Password"
+            :required t)
+          (:button :type "submit" "Login"))))
+    :subtitle "Login"))
+
+(h:define-easy-handler (logout :uri "/logout") ()
+  ;; Default for :value is the empty string
+  (h:set-cookie "jwt-token" :path "/" :http-only t)
+  ;; "jwt-token=; Path=/; HttpOnly; Secure; SameSite=Strict"
+  (h:redirect "/login"))
+
+(h:define-easy-handler (js :uri "/js") ()
+  (h:handle-static-file *file-server-js*))
+
+(h:define-easy-handler (favicon :uri "/favicon.ico") ()
+  (h:handle-static-file *favicon*))
 
 (h:define-easy-handler (root :uri "/") ()
   (h:redirect "/files?path=/"))
 
-(h:define-easy-handler (main-handler :uri "/files") (path)
-  (u:log-it :debug "Processing request ~a" h:*request*)
-  (u:log-it :debug "Authorization header: ~a" (h:header-in "authorization" h:*request*))
+(h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
-  (multiple-value-bind (user password) (h:authorization)
+  (let* ((abs-path (u:join-paths *document-root* path))
+          (path-only (clean-path path))
+          (method (h:request-method*))
+          (token (h:cookie-in "jwt-token"))
+          (user (when token (validate-jwt token))))
+
+    (u:log-it-pairs :debug
+      :details "Handling /files request"
+      :token token :user user :method method :path path :abs-path abs-path)
+
+    ;; Is user authorized?
     (unless user
-      (return-from main-handler (h:require-authorization "File Server")))
-    (let* ((abs-path (u:join-paths *document-root* path))
-            (path-only (clean-path path))
-            (user-id (db-user-id user password))
-            (method (h:request-method h:*request*)))
-      (u:log-it :debug "User=~a; UserID=~a; Password=~a; Method=~a; Path=~a; AbsPath=~a" 
-        user user-id password method path abs-path)
-      ;; Is user authorized?
-      (unless user-id
-        (return-from main-handler (h:require-authorization "File Server")))
-      (u:log-it :info "User is authorized")
-      ;; Is the method GET?
-      (unless (eql method :get)
-        (u:log-it :warn (format nil "~a; username=~a; method=~a; path=~a;"
-                          "Method not allowed" user method path))
-        (setf (h:return-code h:*reply*) 405)
-        (return-from main-handler "Method Not Allowed"))
-      (u:log-it :debug "Method is GET")
-      ;; Does the file or directory exist?
-      (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
-        (u:log-it :warn (format nil "~a; username=~a; method=~a; path=~a;"
-                          "File not found" user method path))
-        (setf (h:return-code h:*reply*) 404)
-        (return-from main-handler "Not Found"))
-      (u:log-it :debug "File or directory exists ~a" abs-path)
-      ;; Does the user have access to the path?
-      (unless (has-read-access user path-only)
-        (u:log-it :info "~a; method=~a; path=~a; user=~a; password=~a;"
-          "Access denied" method path user password)
-        (setf (h:return-code h:*reply*) 403)
-        (return-from main-handler "Forbidden"))
-      (u:log-it :info "User ~a has access to directory ~a"
-        user path-only)
-      ;; Access OK
-      (if (eql (u:path-type abs-path) :directory)
-        (progn
-          (u:log-it :debug "~a is a directory" path)
-          (render-directory-listing user path abs-path))
-        (progn
-          (u:log-it :debug "~a is a file" path)
-          (h:handle-static-file abs-path))))))
+      (u:log-it-pairs :warn :details "Authorization failed" :user user)
+      (setf (h:return-code*) h:+http-authorization-required+)
+      (h:redirect "/login"))
+    (u:log-it :info "User is authorized")
+
+    ;; Is the method GET?
+    (unless (eql method :get)
+      (u:log-it-pairs :warn
+        :details "Method not allowed"
+        :user user :method method :path path)
+      (setf (h:return-code*) h:+http-method-not-allowed+)
+      (return-from files-handler "Method Not Allowed"))
+    (u:log-it :debug "Method is GET")
+
+    ;; Does the file or directory exist?
+    (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
+      (u:log-it-pairs :warn :details "Path not found" 
+        :path path :abs-path abs-path :user user)
+      (setf (h:return-code*) h:+http-not-found+)
+      (return-from files-handler "Not Found"))
+    (u:log-it :debug "File or directory exists ~a" abs-path)
+
+    ;; Does the user have access to the path?
+    (unless (has-read-access user path-only)
+      (u:log-it-pairs :info
+        :details "Access denied" :path path :path-only path-only :user user)
+      (setf (h:return-code h:*reply*) h:+http-forbidden+)
+      (return-from files-handler "Forbidden"))
+    (u:log-it-pairs :info
+      :details "Access granted" :user user :path path-only)
+
+    ;; Access OK
+    (if (eql (u:path-type abs-path) :directory)
+      (progn
+        (u:log-it :debug "~a is a directory" path)
+        (render-directory-listing user path abs-path))
+      (progn
+        (u:log-it :debug "~a is a file" path)
+        (h:handle-static-file abs-path)))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -296,6 +398,10 @@ file name and returns the path to the file with a trailing slash."
     (h:acceptor-persistent-connections-p *http-server*) nil)
   (u:log-it :info "Server started on http://localhost:~d" *http-port*)
   (h:start *http-server*))
+
+(defun stop-web-server ()
+  (h:stop *http-server*)
+  (setf *http-server* nil))
 
 (defun init-database ()  
   (u:log-it :info

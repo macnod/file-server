@@ -1,0 +1,7 @@
+# Login
+GET https://files.sinistercode.com/login?username=admin&password=password
+
+# Get file listing
+GET https://files.sinistercode.com/files?path=/
+Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlYmJiNWExZS03NTYyLTRmMjQtODI4NC0xYjU4MzQyMDFhY2EiLCJleHAiOjE3NjExNDgyMTd9.0nuXPkJ9R6EdPNPQdP6W02xX5ejLvHn-dkipUztnPmYg
+
