@@ -1,7 +1,12 @@
 * To Do
-- [ ] Logs
-  - [ ] Suppress /health check access logs
+- [X] Logs
+  - [X] Suppress /health check access logs
 - [ ] Title and Menu
+- [X] Page
+  - [X] Improve appearance of user info
+- [-] Files Page
+  - [X] Add a symbol in front of the breadcrumb
+  - [ ] Add a list of users with access under the breadcrumb
 - [ ] Users
   - [ ] List users
   - [ ] Add a user

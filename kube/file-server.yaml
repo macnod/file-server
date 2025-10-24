@@ -122,6 +122,8 @@ spec:
                   key: jwt-secret
             - name: LOG_SEVERITY
               value: debug
+            - name: LOG_SUPPRESS_HEALTH
+              value: "true"
             - name: WEB_DIRECTORY
               value: "/app/web"
           volumeMounts:

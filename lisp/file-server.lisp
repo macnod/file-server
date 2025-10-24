@@ -37,6 +37,8 @@
 (defparameter *log-file* (or (u:getenv "LOG_FILE") *standard-output*))
 (defparameter *log-severity-threshold*
   (intern (string-upcase (or (u:getenv "LOG_SEVERITY") "DEBUG")) :keyword))
+(defparameter *log-suppress-health* 
+  (u:getenv "LOG_SUPPRESS_HEALTH" :type :boolean :default t))
 
 ;; Other
 (defparameter *http-server* nil)
@@ -91,23 +93,27 @@ exists. Otherwise, logs a message and returns NIL."
 
 (defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
   "Override to route access logs through u:log-it."
-  (let ((log-severity (cond
-                        ((equal (h:request-uri*) "/health") :debug)
-                        ((< (h:return-code*) 300) :info)
-                        ((< (h:return-code*) 500) :warn)
-                        (t :error))))
-    (u:log-it-pairs log-severity
-      :type "access"
-      :remote (h:remote-addr*)
-      :server (h:local-addr*)
-      :host (h:host)
-      :method (h:request-method*)
-      :uri (h:request-uri*)
-      :return-code (h:return-code*)
-      :status return-code
-      :content-length (or (h:content-length*) 0)
-      :referer (h:referer)
-      :agent (h:user-agent))))
+  (let* ((code (h:return-code*))
+          (uri (h:request-uri*))
+          (health-log (equal uri "/health"))
+          (log-severity (cond
+                          (health-log :debug)
+                          ((< code 300) :info)
+                          ((< code 500) :warn)
+                          (t :error))))
+    (unless (and health-log *log-suppress-health*)
+      (u:log-it-pairs log-severity
+        :type "access"
+        :remote (h:remote-addr*)
+        :server (h:local-addr*)
+        :host (h:host)
+        :method (h:request-method*)
+        :uri uri
+        :return-code code
+        :status return-code
+        :content-length (or (h:content-length*) 0)
+        :referer (h:referer)
+        :agent (h:user-agent)))))
 
 (defmethod h:acceptor-log-message ((acceptor fs-acceptor)
                                     log-level
@@ -243,7 +249,7 @@ file name and returns the path to the file with a trailing slash."
             (if user
               (:form :id "logout-form" :action "/logout" :method "get"
                 (:p :class "user"
-                  (:span :class "status-label" "User: ")
+                  (:img :src "/image?name=user.png" :width 24 :height 24)
                   (:span :class "status-user" user)
                   (:button :type "submit" (if (equal user *guest-username*)
                                             "Log In"
@@ -278,7 +284,9 @@ file name and returns the path to the file with a trailing slash."
     (u:log-it :debug "Files: ~{~a~^, ~}" files)
     (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
     (page (s:with-html-string
-            (:h2 (:raw crumbs))
+            (:div :class "breadcrumb"
+              (:img :src "/image?name=home.png" :width 24 :height 24)
+              (:div (:raw crumbs)))
             ;; Directories
             (:ul :class "listing"
               (mapcar
@@ -364,7 +372,25 @@ file name and returns the path to the file with a trailing slash."
   (l:compile-and-write
     `(.listing :list-style-type none
        (a :display "flex" :align-items "center")
-       (img :margin-right "8px"))))
+       (img :margin-right "8px"))
+    `(.breadcrumb
+       :display "flex"
+       :align-items "center"
+       :gap "8px"
+       (img :vertical-align "middle")
+       (div :display "inline" :font-size "24px"))
+    `(.user
+       :display "flex"
+       :align-items "center"
+       :gap "px"
+       :margin 0
+       (img :width 24 :height 24 :vertical-align "middle")
+       (.status-user :font-weight 500 :margin-left "4px")
+       (button
+         :margin-left "8px"
+         :padding "4px 8px"
+         :font-size "12px"
+         :cursor "pointer"))))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
