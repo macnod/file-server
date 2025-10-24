@@ -1,0 +1,21 @@
+* To Do
+- [ ] Logs
+  - [ ] Suppress /health check access logs
+- [ ] Title and Menu
+- [ ] Users
+  - [ ] List users
+  - [ ] Add a user
+  - [ ] Remove a user
+- [ ] Roles
+  - [ ] List roles
+  - [ ] Add a role to a user
+  - [ ] Add a role to a directory
+  - [ ] Remove a role from a user
+  - [ ] Remove a role from a directory
+  - [ ] Add a permission to a role
+  - [ ] Remove a permission from a role
+- [ ] Directories and Files
+  - [ ] Add a directory
+  - [ ] Delete a directory
+  - [ ] Upload a file
+  - [ ] Delete a file
