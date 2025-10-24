@@ -285,8 +285,7 @@ file name and returns the path to the file with a trailing slash."
                 (lambda (d)
                   (:li (:a :href (format nil "/files?path=~a" d)
                          (:img :src "/image?name=folder.png"
-                           :width 16 :height 16)
-                         " "
+                           :width 24 :height 24)
                          (u:leaf-directory-only d))))
                 subdirs))
             ;; Files
@@ -296,8 +295,7 @@ file name and returns the path to the file with a trailing slash."
                   (:li (:a :href (format nil "/files?path=~a" f)
                          :target "_blank"
                          (:img :src "/image?name=file.png"
-                           :width 16 :height 16)
-                         " "
+                           :width 24 :height 24)
                          (u:filename-only f))))
                 files)))
       :user user)))
@@ -364,8 +362,9 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
   (l:compile-and-write
-    `(.listing
-       :list-style-type none)))
+    `(.listing :list-style-type none
+       (a :display "flex" :align-items "center")
+       (img :margin-right "8px"))))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
