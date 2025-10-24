@@ -9,6 +9,7 @@
                 :swank
                 :spinneret
                 :jose
+                :lass
                 :dc-ds)
   :serial t
   :components ((:module "lisp"

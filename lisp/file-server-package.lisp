@@ -1,6 +1,6 @@
 (defpackage :file-server
   (:use :cl)
-  (:local-nicknames 
+  (:local-nicknames
     (:a :rbac)
     (:u :dc-eclectic)
     (:ds :dc-ds)
@@ -8,4 +8,5 @@
     (:h :hunchentoot)
     (:s :spinneret)
     (:b :babel)
+    (:l :lass)
     (:j :jose)))

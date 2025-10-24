@@ -11,11 +11,14 @@
 ;; User
 (defparameter *root-username* (u:getenv "ROOT_USER" :default "admin"))
 (defparameter *root-password* (u:getenv "ROOT_PASSWORD"
-                                :default "admin-password"))
+                                :default "admin-password-1234"))
 (defparameter *root-role* "admin")
+(defparameter *guest-username* "guest")
+(defparameter *guest-password* "guest-password-1234")
+(defparameter *guest-role* "guest")
 
 ;; JWT Secret
-(defparameter *jwt-secret* 
+(defparameter *jwt-secret*
   (b:string-to-octets (u:getenv "JWT_SECRET" :default "32-char secret")))
 
 ;; Javascript
@@ -186,6 +189,8 @@ file name and returns the path to the file with a trailing slash."
       clean-path)))
 
 (defun has-read-access (user path)
+  (u:log-it-pairs :debug :details "Checking access"
+    :user user :permission "read" :path path)
   (a:user-allowed *rbac* user "read" path))
 
 (defun list-files (abs-path)
@@ -209,20 +214,42 @@ file name and returns the path to the file with a trailing slash."
           (subseq (namestring p) (1- (length *document-root*))))
         (uiop:subdirectories path)))))
 
+(defun add-to-url-query (path &rest pairs)
+  (when path
+    (loop
+      for key in pairs by #'cddr
+      for value in (cdr pairs) by #'cddr
+      for beg = path then url
+      for url = (if (and key value)
+                  (let ((format-string (cond
+                                         ((re:scan "[?]$" beg) "~a~a=~a")
+                                         ((re:scan "[?]" beg) "~a&~a=~a")
+                                         (t "~a?~a=~a"))))
+                    (format nil format-string beg key (h:url-encode value)))
+                  (or beg url))
+      finally (return url))))
+
 (defun page (content &key subtitle user)
+  (u:log-it-pairs :debug :details "Rendering page" :subtitle subtitle :user user)
   (let ((title "Donnie's Bad-Ass File Server"))
     (s:with-html-string
       (:doctype)
       (:html
         (:head
-          (:title title))
+          (:title title)
+          (:link :rel "stylesheet" :href "/css"))
         (:body
-          (when user
-            (:form :id "logout-form" :action "/logout" :method "get"
-              (:p :class "user"
-                (:span :class "status-label" "User: ")
-                (:span :class "status-user" user)
-                (:button :type "submit" "Logout"))))
+          (:div :id "menu-bar"
+            (if user
+              (:form :id "logout-form" :action "/logout" :method "get"
+                (:p :class "user"
+                  (:span :class "status-label" "User: ")
+                  (:span :class "status-user" user)
+                  (:button :type "submit" (if (equal user *guest-username*)
+                                            "Log In"
+                                            "Log Out"))))
+              (unless (equal subtitle "Log In")
+                (:a :href "/login" "Log In"))))
           (:h1 title)
           (when subtitle (:h2 subtitle))
           (:raw content))))))
@@ -253,22 +280,22 @@ file name and returns the path to the file with a trailing slash."
     (page (s:with-html-string
             (:h2 (:raw crumbs))
             ;; Directories
-            (:ul :style "list-style-type: none;"
+            (:ul :class "listing"
               (mapcar
                 (lambda (d)
                   (:li (:a :href (format nil "/files?path=~a" d)
-                         (:img :src "/image?name=folder.png" 
+                         (:img :src "/image?name=folder.png"
                            :width 16 :height 16)
                          " "
                          (u:leaf-directory-only d))))
                 subdirs))
             ;; Files
-            (:ul :style "list-style-type: none;"
+            (:ul :class "listing"
               (mapcar
                 (lambda (f)
                   (:li (:a :href (format nil "/files?path=~a" f)
                          :target "_blank"
-                         (:img :src "/image?name=file.png" 
+                         (:img :src "/image?name=file.png"
                            :width 16 :height 16)
                          " "
                          (u:filename-only f))))
@@ -290,13 +317,13 @@ file name and returns the path to the file with a trailing slash."
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (u:timestamp-string)))
 
-(h:define-easy-handler (login :uri "/login") (username password error)
+(h:define-easy-handler (login :uri "/login") (username password error redirect)
   (setf (h:content-type*) "text/html")
   (u:log-it-pairs :debug :details "Login page" :username username :error error)
   (cond
     ((and (not error) (h:session-value :jwt-token))
-      (u:log-it :debug "jwt-token is present, redirecting to files")
-      (h:redirect "/files?path=/"))
+      (u:log-it :debug "jwt-token is present, redirecting")
+      (h:redirect (or redirect "/files") :protocol :https))
     ((and (not error) username password)
       (u:log-it :debug "Login attempt for user ~a" username)
       (let ((user-id (db-user-id username password)))
@@ -306,32 +333,39 @@ file name and returns the path to the file with a trailing slash."
               username)
             (h:start-session)
             (setf (h:session-value :jwt-token) token)
-            (h:redirect "/files?path=/"))
+            (h:redirect (or redirect "/files") :protocol :https))
           (progn
             (u:log-it :warn "Login failed for user ~a, render login error"
               username)
             (h:delete-session-value :jwt-token)
-            (h:redirect "/login?error=Error: Invalid username or password")))))
+            (h:redirect (add-to-url-query "/login" "redirect" redirect)
+              :protocol :https)))))
     (t
-      (u:log-it :debug "Rendering login page")
-        (page
-          (s:with-html-string
-            (:div :id "login-form"
-              (when error (:p (:i error)))
-              (:form :id "login" :action "/login" :method "post"
-                (:input :type "text" :name "username" :placeholder "Username"
-                  :required t)
-                (:input :type "password" :name "password" :placeholder "Password"
-                  :required t)
-                (:button :type "submit" "Login"))))
-          :subtitle "Login"))))
+      (page
+        (s:with-html-string
+          (:div :id "login-form"
+            (when error (:p (:i error)))
+            (:form :id "login" :action "/login" :method "post"
+              (:input :type "hidden" :name "redirect" :value redirect)
+              (:input :type "text" :name "username" :placeholder "Username"
+                :required t)
+              (:input :type "password" :name "password" :placeholder "Password"
+                :required t)
+              (:button :type "submit" "Log In"))))
+        :subtitle "Log In"))))
 
-(h:define-easy-handler (logout :uri "/logout") ()
+(h:define-easy-handler (logout :uri "/logout") (redirect)
   (h:delete-session-value :jwt-token)
-  (h:redirect "/login"))
+  (h:redirect (add-to-url-query "/login" "redirect" redirect)))
 
 (h:define-easy-handler (js :uri "/js") ()
   (h:handle-static-file *file-server-js*))
+
+(h:define-easy-handler (css :uri "/css") ()
+  (setf (h:content-type*) "text/css")
+  (l:compile-and-write
+    `(.listing
+       :list-style-type none)))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
@@ -340,7 +374,7 @@ file name and returns the path to the file with a trailing slash."
   (h:handle-static-file (u:join-paths *web-directory* name)))
 
 (h:define-easy-handler (root :uri "/") ()
-  (h:redirect "/files?path=/"))
+  (h:redirect (add-to-url-query "/files" "path" "/")))
 
 (h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
@@ -356,10 +390,11 @@ file name and returns the path to the file with a trailing slash."
 
     ;; Is user authorized?
     (unless user
-      (u:log-it-pairs :warn :details "Authorization failed" :user user)
-      (setf (h:return-code*) h:+http-authorization-required+)
-      (h:redirect "/login"))
-    (u:log-it :info "User is authorized")
+      (u:log-it-pairs :info
+        :details "Authorization failed"
+        :old-user user
+        :new-user *guest-username*)
+      (setf user *guest-username*))
 
     ;; Is the method GET?
     (unless (eql method :get)
@@ -429,6 +464,19 @@ file name and returns the path to the file with a trailing slash."
   (unless (a:get-id *rbac* "users" *root-username*)
     (a:d-add-user *rbac* *root-username* *root-password*
       :roles (list *root-role*)))
+  ;; Add guest role if it doesnt exist
+  (unless (a:get-id *rbac* "roles" *guest-role*)
+    (a:d-add-role *rbac* *guest-role*
+      :description "Role for anonymous users that are not logged in.")
+    (a:d-add-role-permission *rbac* *guest-role* "read"))
+  ;; Add the guest user if it doesn't exist
+  (unless (a:get-id *rbac* "users" *guest-username*)
+    (a:d-add-user *rbac* *guest-username* *guest-password*
+      :roles (list *guest-role*)))
+  ;; Add the root directory to the resources, in such a way that
+  ;; everyone (guest) have access
+  (unless (a:get-id *rbac* "resources" "/")
+    (a:d-add-resource *rbac* "/" :roles (list *guest-role*)))
   *rbac*)
 
 (defun periodic-directory-sync ()
