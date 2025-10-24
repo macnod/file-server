@@ -356,7 +356,7 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (logout :uri "/logout") (redirect)
   (h:delete-session-value :jwt-token)
-  (h:redirect (add-to-url-query "/login" "redirect" redirect)))
+  (h:redirect (add-to-url-query "/login" "redirect" redirect) :protocol :https))
 
 (h:define-easy-handler (js :uri "/js") ()
   (h:handle-static-file *file-server-js*))
@@ -374,7 +374,7 @@ file name and returns the path to the file with a trailing slash."
   (h:handle-static-file (u:join-paths *web-directory* name)))
 
 (h:define-easy-handler (root :uri "/") ()
-  (h:redirect (add-to-url-query "/files" "path" "/")))
+  (h:redirect (add-to-url-query "/files" "path" "/") :protocol :https))
 
 (h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
