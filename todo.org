@@ -7,10 +7,25 @@
 - [X] Files Page
   - [X] Add a symbol in front of the breadcrumb
   - [X] Add a list of users with access under the breadcrumb
-- [ ] Users
-  - [ ] List users
+- [-] Users
+  - [X] List users
+  - [ ] Page user list
+  - [ ] Sort user list, asc/desc
+    - [ ] By user
+    - [ ] By email
+    - [ ] By Created
+    - [ ] By Last Login
+    - [ ] By Roles
+  - [ ] Filter user list
+    - [ ] By user
+    - [ ] By email
+    - [ ] By Created
+    - [ ] By Last Login
+    - [ ] Having role(s)
+  - [ ] Max role column width
   - [ ] Add a user
   - [ ] Remove a user
+  - [ ] Self-register
 - [ ] Roles
   - [ ] List roles
   - [ ] Add a role to a user

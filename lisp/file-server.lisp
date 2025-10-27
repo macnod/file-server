@@ -437,7 +437,10 @@ file name and returns the path to the file with a trailing slash."
        ("#menu-item-users"
           :display "flex"
           :align-items "center"
-          :margin-right "8px"))))
+          :margin-right "8px"))
+    `(.list-of-users :padding-left "10px" :border-spacing "0"
+       (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
+       (td :padding-right "10px"))))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
@@ -541,10 +544,10 @@ file name and returns the path to the file with a trailing slash."
         (:tr
           (:td username)
           (:td email)
-          (:td (if created
+          (:td (if (and created (not (eql created :null)))
                  (u:timestamp-string :universal-time created)
                  ""))
-          (:td (if last-login
+          (:td (if (and last-login (not (eql last-login :null)))
                  (u:timestamp-string :universal-time last-login)
                  ""))
           (:td (format nil "~{~a~^, ~}" roles))))
@@ -553,14 +556,16 @@ file name and returns the path to the file with a trailing slash."
       (return
         (page
           (s:with-html-string
-            (:table
-              (:tr
-                (:th "User")
-                (:th "Email")
-                (:th "Created")
-                (:th "Last Login")
-                (:th "Roles"))
-              (:raw (format nil "~{~a~%~}" rows))))
+            (:table :class "list-of-users"
+              (:thead
+                (:tr
+                  (:th "User")
+                  (:th "Email")
+                  (:th "Created")
+                  (:th "Last Login")
+                  (:th "Roles")))
+              (:tbody
+                (:raw (format nil "~{~a~%~}" rows)))))
           :subtitle "User List"
           :user *root-username*)))))
 
