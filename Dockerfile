@@ -46,7 +46,9 @@ RUN $ROSWELL install postmodern && \
     $ROSWELL install trivial-utf-8 && \
     $ROSWELL install ironclad && \
     $ROSWELL install babel && \
-    $ROSWELL install jose
+    $ROSWELL install jose && \
+    $ROSWELL install cl-csv && \
+    $ROSWELL install cl-unicode
 
 # stable macnod packages
 RUN $ROSWELL install macnod/dc-ds && \
