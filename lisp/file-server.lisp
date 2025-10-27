@@ -37,7 +37,7 @@
 (defparameter *log-file* (or (u:getenv "LOG_FILE") *standard-output*))
 (defparameter *log-severity-threshold*
   (intern (string-upcase (or (u:getenv "LOG_SEVERITY") "DEBUG")) :keyword))
-(defparameter *log-suppress-health* 
+(defparameter *log-suppress-health*
   (u:getenv "LOG_SUPPRESS_HEALTH" :type :boolean :default t))
 
 ;; Other
@@ -304,7 +304,7 @@ file name and returns the path to the file with a trailing slash."
                           (format nil "and ~d more"
                             (- count-total count-actual)))
                         (t "and many more"))))
-    (when additional 
+    (when additional
       (setf access-list-show
         (append access-list-show (list additional))))
     access-list-show))
@@ -426,17 +426,17 @@ file name and returns the path to the file with a trailing slash."
     `(.menu-item-separator :margin-left "8px" :margin-right "8px")
     `("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
        ("#menu-item-user"
-          :display "flex" 
+          :display "flex"
           :align-items "center"
-          :margin-right "8px" 
+          :margin-right "8px"
           (img :width "16px" :height "16px" :margin-right "4px")
           (a :align-items "center" :margin-right "4px")
           (.status-user
             :font-weight 500
             :margin-right "4px"))
        ("#menu-item-users"
-          :display "flex" 
-          :align-items "center" 
+          :display "flex"
+          :align-items "center"
           :margin-right "8px"))))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
@@ -503,7 +503,7 @@ file name and returns the path to the file with a trailing slash."
         (u:log-it :debug "~a is a file" path)
         (h:handle-static-file abs-path)))))
 
-(h:define-easy-handler (list-users-handler :uri "/list-users") 
+(h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
   (let* ((method (h:request-method*))
@@ -529,7 +529,7 @@ file name and returns the path to the file with a trailing slash."
       (setf (h:return-code*) h:+http-method-not-allowed+)
       (return-from list-users-handler "Method Not Allowed"))
 
-    (loop 
+    (loop
       for user in (a:list-users *rbac* page page-size)
       for username = (getf user :username)
       for email = (getf user :email)
@@ -538,7 +538,7 @@ file name and returns the path to the file with a trailing slash."
       for roles = (a:list-user-role-names *rbac* username)
       collect
       (s:with-html-string
-        (:tr 
+        (:tr
           (:td username)
           (:td email)
           (:td (if created
@@ -563,10 +563,6 @@ file name and returns the path to the file with a trailing slash."
               (:raw (format nil "~{~a~%~}" rows))))
           :subtitle "User List"
           :user *root-username*)))))
-        
-      
-
-    (page "Not implemented" :subtitle "List Users" :user user)))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
