@@ -235,6 +235,27 @@ file name and returns the path to the file with a trailing slash."
                   (or beg url))
       finally (return url))))
 
+(defun menu (user subtitle)
+  (s:with-html-string
+    (:div :id "menu-bar"
+      (:div :id "menu-item-files"
+        (:a :href "/files" "files"))
+      (:div :class "menu-item-separator" "|")
+      (when (equal user *root-username*)
+        (:div :id "menu-item-users"
+          (:a :href "/list-users" "list users"))
+        (:div :class "menu-item-separator" "|"))
+      (if user
+        (:div :id "menu-item-user"
+          (:img :src "/image?name=user.png")
+          (:span :class "status-user" user)
+          (:a :href "/logout" (if (equal user *guest-username*)
+                               "log in"
+                               "log out")))
+        (unless (equal subtitle "Log In")
+          (:div :id "menu-item-user"
+            (:a :href "/logout" "log in")))))))
+
 (defun page (content &key subtitle user)
   (u:log-it-pairs :debug :details "Rendering page" :subtitle subtitle :user user)
   (let ((title "Donnie's Bad-Ass File Server"))
@@ -245,17 +266,7 @@ file name and returns the path to the file with a trailing slash."
           (:title title)
           (:link :rel "stylesheet" :href "/css"))
         (:body
-          (:div :id "menu-bar"
-            (if user
-              (:form :id "logout-form" :action "/logout" :method "get"
-                (:p :class "user"
-                  (:img :src "/image?name=user.png" :width 24 :height 24)
-                  (:span :class "status-user" user)
-                  (:button :type "submit" (if (equal user *guest-username*)
-                                            "Log In"
-                                            "Log Out"))))
-              (unless (equal subtitle "Log In")
-                (:a :href "/login" "Log In"))))
+          (:raw (menu user subtitle))
           (:h1 title)
           (when subtitle (:h2 subtitle))
           (:raw content))))))
@@ -335,7 +346,8 @@ file name and returns the path to the file with a trailing slash."
                            :width 24 :height 24)
                          (u:filename-only f))))
                 files)))
-      :user user)))
+      :user user
+      :subtitle "Files")))
 
 (defmethod h:acceptor-log-message ((acceptor h:easy-acceptor)
                                     log-level
@@ -411,23 +423,28 @@ file name and returns the path to the file with a trailing slash."
     `(.access-list :margin-left "32px" :display "flex"
        (img :vertical-align "middle")
        (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
-    `(.user
-       :display "flex"
-       :align-items "center"
-       :gap "px"
-       :margin 0
-       (img :width 24 :height 24 :vertical-align "middle")
-       (.status-user :font-weight 500 :margin-left "4px")
-       (button
-         :margin-left "8px"
-         :padding "4px 8px"
-         :font-size "12px"
-         :cursor "pointer"))))
+    `(.menu-item-separator :margin-left "8px" :margin-right "8px")
+    `("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
+       ("#menu-item-user"
+          :display "flex" 
+          :align-items "center"
+          :margin-right "8px" 
+          (img :width "16px" :height "16px" :margin-right "4px")
+          (a :align-items "center" :margin-right "4px")
+          (.status-user
+            :font-weight 500
+            :margin-right "4px"))
+       ("#menu-item-users"
+          :display "flex" 
+          :align-items "center" 
+          :margin-right "8px"))))
+
+#menu-item-user > div:nth-child(1) > img:nth-child(1)
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
 
-(h:define-easy-handler (image :uri "/image") (name width height)
+(h:define-easy-handler (image :uri "/image") (name)
   (h:handle-static-file (u:join-paths *web-directory* name)))
 
 (h:define-easy-handler (root :uri "/") ()
@@ -442,7 +459,7 @@ file name and returns the path to the file with a trailing slash."
           (user (when token (validate-jwt token))))
 
     (u:log-it-pairs :debug
-      :details "Handling /files request"
+      :details "Handling /files"
       :token token :user user :method method :path path :abs-path abs-path)
 
     ;; Is user authorized?
@@ -487,6 +504,71 @@ file name and returns the path to the file with a trailing slash."
       (progn
         (u:log-it :debug "~a is a file" path)
         (h:handle-static-file abs-path)))))
+
+(h:define-easy-handler (list-users-handler :uri "/list-users") 
+  ((page :parameter-type 'integer :init-form 1)
+    (page-size :parameter-type 'integer :init-form 20))
+  (let* ((method (h:request-method*))
+          (token (h:session-value :jwt-token))
+          (user (when token (validate-jwt token))))
+
+    (u:log-it-pairs :debug :details "Handling /list-users"
+      :token token :user user :method method)
+
+    ;; Is user authorized?
+    (unless (equal user *root-username*)
+      (u:log-it-pairs :info
+        :details "Authorization failed"
+        :user user
+        :error (format nil "Only ~a user is allowed" *root-username*)
+        (h:redirect "/files" :protocol :https)))
+
+    ;; Is the method GET?
+    (unless (eql method :get)
+      (u:log-it-pairs :warn
+        :details "Method not allowed"
+        :user user :method method)
+      (setf (h:return-code*) h:+http-method-not-allowed+)
+      (return-from list-users-handler "Method Not Allowed"))
+
+    (loop 
+      for user in (a:list-users *rbac* page page-size)
+      for username = (getf user :username)
+      for email = (getf user :email)
+      for created = (getf user :created-at)
+      for last-login = (getf user :last-login)
+      for roles = (a:list-user-role-names *rbac* username)
+      collect
+      (s:with-html-string
+        (:tr 
+          (:td username)
+          (:td email)
+          (:td (if created
+                 (u:timestamp-string :universal-time created)
+                 ""))
+          (:td (if last-login
+                 (u:timestamp-string :universal-time last-login)
+                 ""))
+          (:td (format nil "~{~a~^, ~}" roles))))
+      into rows
+      finally
+      (return
+        (page
+          (s:with-html-string
+            (:table
+              (:tr
+                (:th "User")
+                (:th "Email")
+                (:th "Created")
+                (:th "Last Login")
+                (:th "Roles"))
+              (:raw (format nil "~{~a~%~}" rows))))
+          :subtitle "User List"
+          :user *root-username*)))))
+        
+      
+
+    (page "Not implemented" :subtitle "List Users" :user user)))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor

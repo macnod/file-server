@@ -20,6 +20,7 @@
   - [ ] Add a permission to a role
   - [ ] Remove a permission from a role
 - [ ] Directories and Files
+  - [ ] Add paging
   - [ ] Add a directory
   - [ ] Delete a directory
   - [ ] Upload a file
