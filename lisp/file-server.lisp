@@ -439,8 +439,6 @@ file name and returns the path to the file with a trailing slash."
           :align-items "center" 
           :margin-right "8px"))))
 
-#menu-item-user > div:nth-child(1) > img:nth-child(1)
-
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
 
