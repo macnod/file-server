@@ -260,26 +260,29 @@ file name and returns the path to the file with a trailing slash."
           (when subtitle (:h2 subtitle))
           (:raw content))))))
 
+(defun assemble-breadcrumbs (path)
+  (loop
+    with path-parts = (cons "/"
+                        (re:split "/" (string-trim "/" path)))
+    with count = (length path-parts)
+    for part in path-parts
+    for index = 1 then (1+ index)
+    for last = (= index count)
+    for parent-path = part then (u:join-paths parent-path part)
+    for parent-name = "root" then part
+    collect (if last
+              (format nil "~a" parent-name)
+              (s:with-html-string
+                (:a :href (format nil "?path=~a" parent-path)
+                  parent-name)))
+    into breadcrumbs
+    finally (return (format nil "~{~a~^/~}" breadcrumbs))))
+
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
          (subdirs (rdl-subdirectories user abs-path))
-         (crumbs (loop
-                   with path-parts = (cons "/"
-                                       (re:split "/" (string-trim "/" path)))
-                   with count = (length path-parts)
-                   for part in path-parts
-                   for index = 1 then (1+ index)
-                   for last = (= index count)
-                   for parent-path = part then (u:join-paths parent-path part)
-                   for parent-name = "root" then part
-                   collect (if last
-                             (format nil "~a" parent-name)
-                             (s:with-html-string
-                               (:a :href (format nil "?path=~a" parent-path)
-                                 parent-name)))
-                   into breadcrumbs
-                   finally (return (format nil "~{~a~^/~}" breadcrumbs)))))
+         (crumbs (assemble-breadcrumbs user path abs-path)))
     (u:log-it :info "List directories")
     (u:log-it :debug "Files: ~{~a~^, ~}" files)
     (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
