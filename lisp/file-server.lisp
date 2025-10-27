@@ -506,6 +506,44 @@ file name and returns the path to the file with a trailing slash."
         (u:log-it :debug "~a is a file" path)
         (h:handle-static-file abs-path)))))
 
+(defun render-user-list (page page-size)
+  (loop
+    for user in (a:list-users *rbac* page page-size)
+    for username = (getf user :username)
+    for email = (getf user :email)
+    for created = (getf user :created-at)
+    for last-login = (getf user :last-login)
+    for roles = (a:list-user-role-names *rbac* username)
+    collect
+    (s:with-html-string
+      (:tr
+        (:td username)
+        (:td email)
+        (:td (if (and created (not (eql created :null)))
+               (u:timestamp-string :universal-time created)
+               ""))
+        (:td (if (and last-login (not (eql last-login :null)))
+               (u:timestamp-string :universal-time last-login)
+               ""))
+        (:td (format nil "~{~a~^, ~}" roles))))
+    into rows
+    finally
+    (return
+      (page
+        (s:with-html-string
+          (:table :class "list-of-users"
+            (:thead
+              (:tr
+                (:th "User")
+                (:th "Email")
+                (:th "Created")
+                (:th "Last Login")
+                (:th "Roles")))
+            (:tbody
+              (:raw (format nil "~{~a~%~}" rows)))))
+        :subtitle "User List"
+        :user *root-username*))))
+
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
@@ -532,42 +570,7 @@ file name and returns the path to the file with a trailing slash."
       (setf (h:return-code*) h:+http-method-not-allowed+)
       (return-from list-users-handler "Method Not Allowed"))
 
-    (loop
-      for user in (a:list-users *rbac* page page-size)
-      for username = (getf user :username)
-      for email = (getf user :email)
-      for created = (getf user :created-at)
-      for last-login = (getf user :last-login)
-      for roles = (a:list-user-role-names *rbac* username)
-      collect
-      (s:with-html-string
-        (:tr
-          (:td username)
-          (:td email)
-          (:td (if (and created (not (eql created :null)))
-                 (u:timestamp-string :universal-time created)
-                 ""))
-          (:td (if (and last-login (not (eql last-login :null)))
-                 (u:timestamp-string :universal-time last-login)
-                 ""))
-          (:td (format nil "~{~a~^, ~}" roles))))
-      into rows
-      finally
-      (return
-        (page
-          (s:with-html-string
-            (:table :class "list-of-users"
-              (:thead
-                (:tr
-                  (:th "User")
-                  (:th "Email")
-                  (:th "Created")
-                  (:th "Last Login")
-                  (:th "Roles")))
-              (:tbody
-                (:raw (format nil "~{~a~%~}" rows)))))
-          :subtitle "User List"
-          :user *root-username*)))))
+    (render-user-list page page-size)))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
