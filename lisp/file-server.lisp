@@ -288,12 +288,15 @@ file name and returns the path to the file with a trailing slash."
                               access-list
                               (subseq access-list 0 count-list)))
           (additional (cond
-                        ((<= count-actual count-list) "")
+                        ((<= count-actual count-list) nil)
                         ((< count-actual count-total)
-                          (format nil ", and ~d more"
+                          (format nil "and ~d more"
                             (- count-total count-actual)))
-                        (t ", and many more"))))
-    (format nil "~{~a~^, ~}~a" access-list-show additional)))
+                        (t "and many more"))))
+    (when additional 
+      (setf access-list-show
+        (append access-list-show (list additional))))
+    access-list-show))
 
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
@@ -303,16 +306,16 @@ file name and returns the path to the file with a trailing slash."
          (access-list (assemble-access-list path)))
     (u:log-it-pairs :debug
       :details "List directories"
-      :files (format nil "~{~a~^, ~}" files)
-      :subdirectories (format nil "~{~a~^, ~}" subdirs)
-      :access-list access-list)
+      :files (map 'vector 'identity files)
+      :subdirectories (map 'vector 'identity subdirs)
+      :access-list (map 'vector 'identity access-list))
     (page (s:with-html-string
             (:div :class "breadcrumb"
               (:img :src "/image?name=home.png" :width 24 :height 24)
               (:div (:raw crumbs)))
             (:div :class "access-list"
               (:img :src "/image?name=users.png" :width 16 :height 16)
-              (:span access-list))
+              (:span (format nil "~{~a~^, ~}" access-list)))
             ;; Directories
             (:ul :class "listing"
               (mapcar
