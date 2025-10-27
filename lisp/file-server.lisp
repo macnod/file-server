@@ -278,6 +278,10 @@ file name and returns the path to the file with a trailing slash."
     into breadcrumbs
     finally (return (format nil "~{~a~^/~}" breadcrumbs))))
 
+;; (defun assemble-access-list (path)
+;;   (let ((access-list (a:list-resource-usernames
+;;                        *rbac* "/" "read" :page-size 10)))
+
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
