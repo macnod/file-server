@@ -278,22 +278,41 @@ file name and returns the path to the file with a trailing slash."
     into breadcrumbs
     finally (return (format nil "~{~a~^/~}" breadcrumbs))))
 
-;; (defun assemble-access-list (path)
-;;   (let ((access-list (a:list-resource-usernames
-;;                        *rbac* "/" "read" :page-size 10)))
+(defun assemble-access-list (path)
+  (let* ((count-list 5)
+          (count-total 20)
+          (access-list (a:list-resource-usernames
+                         *rbac* path nil :page-size count-total))
+          (count-actual (length access-list))
+          (access-list-show (if (<= (length access-list) count-list)
+                              access-list
+                              (subseq access-list 0 count-list)))
+          (additional (cond
+                        ((<= count-actual count-list) "")
+                        ((< count-actual count-total)
+                          (format nil ", and ~d more"
+                            (- count-total count-actual)))
+                        (t ", and many more"))))
+    (format nil "~{~a~^, ~}~a" access-list-show additional)))
 
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
          (subdirs (rdl-subdirectories user abs-path))
-         (crumbs (assemble-breadcrumbs user path abs-path)))
-    (u:log-it :info "List directories")
-    (u:log-it :debug "Files: ~{~a~^, ~}" files)
-    (u:log-it :debug "Subdirs: ~{~a~^, ~}" subdirs)
+         (crumbs (assemble-breadcrumbs path))
+         (access-list (assemble-access-list path)))
+    (u:log-it-pairs :debug
+      :details "List directories"
+      :files (format nil "~{~a~^, ~}" files)
+      :subdirectories (format nil "~{~a~^, ~}" subdirs)
+      :access-list access-list)
     (page (s:with-html-string
             (:div :class "breadcrumb"
               (:img :src "/image?name=home.png" :width 24 :height 24)
               (:div (:raw crumbs)))
+            (:div :class "access-list"
+              (:img :src "/image?name=users.png" :width 16 :height 16)
+              (:span access-list))
             ;; Directories
             (:ul :class "listing"
               (mapcar
@@ -386,6 +405,9 @@ file name and returns the path to the file with a trailing slash."
        :gap "8px"
        (img :vertical-align "middle")
        (div :display "inline" :font-size "24px"))
+    `(.access-list :margin-left "32px" :display "flex"
+       (img :vertical-align "middle")
+       (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
     `(.user
        :display "flex"
        :align-items "center"
