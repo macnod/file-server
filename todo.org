@@ -1,7 +1,10 @@
 * To Do
 - [X] Logs
   - [X] Suppress /health check access logs
-- [ ] Title and Menu
+- [-] Title and Menu
+  - [X] Rudimentary functionality
+  - [ ] Remove trailing separator
+  - [ ] Improve appearance
 - [X] Page
   - [X] Improve appearance of user info
 - [X] Files Page
@@ -23,7 +26,7 @@
     - [ ] By Last Login
     - [ ] Having role(s)
   - [ ] Max role column width
-  - [ ] Add a user
+  - [X] Add a user
   - [ ] Remove a user
   - [ ] Self-register
 - [ ] Roles

@@ -137,6 +137,15 @@ directory's ID if it does and NIL otherwise."
 (defun db-user-id (user password)
   (a:d-login *rbac* user password))
 
+(defun db-list-roles (user)
+  (when user
+    (handler-case
+      (a:list-user-role-names *rbac* user :page-size 1000)
+      (error (e)
+        (u:log-it-pairs :error
+          :detail (format nil "Failed to retrieve roles for user '~a'" user)
+          :error (format nil "~a" e))))))
+
 (defun db-list-directories ()
   (a:list-resource-names *rbac*))
 
@@ -236,25 +245,27 @@ file name and returns the path to the file with a trailing slash."
       finally (return url))))
 
 (defun menu (user subtitle)
-  (s:with-html-string
-    (:div :id "menu-bar"
-      (:div :id "menu-item-files"
-        (:a :href "/files" "files"))
-      (:div :class "menu-item-separator" "|")
-      (when (equal user *root-username*)
-        (:div :id "menu-item-users"
-          (:a :href "/list-users" "list users"))
-        (:div :class "menu-item-separator" "|"))
-      (if user
-        (:div :id "menu-item-user"
-          (:img :src "/image?name=user.png")
-          (:span :class "status-user" user)
-          (:a :href "/logout" (if (equal user *guest-username*)
-                               "log in"
-                               "log out")))
-        (unless (equal subtitle "Log In")
+  (let* ((roles (db-list-roles user))
+          (is-admin (member *root-role* roles :test 'equal)))
+    (s:with-html-string
+      (:div :id "menu-bar"
+        (:div :id "menu-item-files"
+          (:a :href "/files" "files"))
+        (:div :class "menu-item-separator" "|")
+        (when is-admin
+          (:div :id "menu-item-users"
+            (:a :href "/list-users" "list users"))
+          (:div :class "menu-item-separator" "|"))
+        (if user
           (:div :id "menu-item-user"
-            (:a :href "/logout" "log in")))))))
+            (:img :src "/image?name=user.png")
+            (:span :class "status-user" user)
+            (:a :href "/logout" (if (equal user *guest-username*)
+                                  "log in"
+                                  "log out")))
+          (unless (equal subtitle "Log In")
+            (:div :id "menu-item-user"
+              (:a :href "/logout" "log in"))))))))
 
 (defun page (content &key subtitle user)
   (u:log-it-pairs :debug :details "Rendering page" :subtitle subtitle :user user)
@@ -408,8 +419,7 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (js :uri "/js") ()
   (h:handle-static-file *file-server-js*))
 
-(h:define-easy-handler (css :uri "/css") ()
-  (setf (h:content-type*) "text/css")
+(defun generate-css ()
   (l:compile-and-write
     `(.listing :list-style-type none
        (a :display "flex" :align-items "center")
@@ -426,21 +436,55 @@ file name and returns the path to the file with a trailing slash."
     `(.menu-item-separator :margin-left "8px" :margin-right "8px")
     `("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
        ("#menu-item-user"
-          :display "flex"
-          :align-items "center"
-          :margin-right "8px"
-          (img :width "16px" :height "16px" :margin-right "4px")
-          (a :align-items "center" :margin-right "4px")
-          (.status-user
-            :font-weight 500
-            :margin-right "4px"))
+         :display "flex"
+         :align-items "center"
+         :margin-right "8px"
+         (img :width "16px" :height "16px" :margin-right "4px")
+         (a :align-items "center" :margin-right "4px")
+         (.status-user
+           :font-weight 500
+           :margin-right "4px"))
        ("#menu-item-users"
-          :display "flex"
-          :align-items "center"
-          :margin-right "8px"))
-    `(.list-of-users :padding-left "10px" :border-spacing "0"
+         :display "flex"
+         :align-items "center"
+         :margin-right "8px"))
+    `(.list-of-users 
+       :padding-left "10px" 
+       :border-spacing "0"
+       :border-bottom "1px solid black"
        (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
-       (td :padding-right "10px"))))
+       (td :padding-right "10px"))
+    `(.add-user
+       :padding-top "45px"
+       :display "flex"
+       :flex-direction "column"
+       :align-items "flex-start"
+       :max-width "30rem"
+       (.form-group
+         :display "flex"
+         :align-items "flex-start"
+         :margin-bottom ".75rem"
+         (label
+           :width "12rem"
+           :text-align "right"
+           :margin-right "1rem"
+           :flex-shrink "0")
+         (.textinput
+           :flex "1"
+           :width "16rem"
+           :max-width "30rem"))
+       (.checkbox-group
+         :display "flex"
+         :flex-direction "column"
+         :gap ".35rem"
+         :margin-top ".25rem"
+         (.checkbox
+           (input :margin-right ".35rem")))
+       (button :align-self "flex-end"))))
+
+(h:define-easy-handler (css :uri "/css") ()
+  (setf (h:content-type*) "text/css")
+  (generate-css))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
@@ -513,7 +557,7 @@ file name and returns the path to the file with a trailing slash."
     for email = (getf user :email)
     for created = (getf user :created-at)
     for last-login = (getf user :last-login)
-    for roles = (a:list-user-role-names *rbac* username)
+    for roles = (db-list-roles username)
     collect
     (s:with-html-string
       (:tr
@@ -544,6 +588,111 @@ file name and returns the path to the file with a trailing slash."
         :subtitle "User List"
         :user *root-username*))))
 
+(defun render-new-user-form ()
+  (let ((roles (remove-if
+                 (lambda (r)
+                   (or
+                     (member r '("logged-in" "guest" "system") :test 'equal)
+                     (re:scan ":exclusive$" r)))
+                 (a:list-role-names *rbac* :page-size 1000))))
+    (s:with-html-string
+      (:form :id "add-user" :class "add-user"
+        :action "/add-user" :method "post"
+        :autocomplete "off"
+        (:div :class "form-group"
+          (:label :for "emanresu" "Handle")
+          (:input :type "text" :id "emanresu" :class "textinput"
+            :name "emanresu" :required t))
+        (:div :class "form-group"
+          (:label :for "liame" "Contact")
+          (:input :type "text" :id "liame" :class "textinput"
+            :name "liame" :required t))
+        (:div :class "form-group"
+          (:label :for "drowssap" "Password")
+          (:input :type "text" :id "drowssap" :class "textinput"
+            :name "drowssap" :required t))
+        (:div :class "form-group"
+          (:label :for "text" "Password Verification")
+          (:input :type "" :id "password-verification"
+            :class "textinput"
+            :name "password-verification" 
+            :required t))
+        (:div :class "form-group"
+          (:label "Roles")
+          (:div :class "checkbox-group"
+            (:raw (loop for role in roles collect
+                    (s:with-html-string 
+                      (:div :class "checkbox"
+                        (:label
+                          (:input :type "checkbox"
+                            :name "roles"
+                            :value role)
+                          role)))
+                    into html
+                    finally (return (format nil "~{~a~%~}" html))))))
+        (:button :type "submit" "Create")))))
+
+(defun error-page (origin user error-description &rest params)
+  (let* ((err-desc (apply #'format 
+                     (append (list nil error-description) params)))
+         (err (format nil "Error in ~a: ~a" origin err-desc)))
+    (u:log-it-pairs :details err :user (or user "(unknown)"))
+    (page (s:with-html-string (:p err)) :subtitle "Error" :user user)))
+
+(h:define-easy-handler (add-user-handler :uri "/add-user" 
+                         :default-request-type :post)
+  ((username :real-name "emanresu")
+    (email :real-name "liame")
+    (password :real-name "drowssap")
+    password-verification
+    (new-roles :real-name "roles" :parameter-type '(list string)))
+  (let* ((token (h:session-value :jwt-token))
+          (user (when token (validate-jwt token)))
+          (roles (when user (db-list-roles user))))
+
+    (u:log-it-pairs :error :detail "handle /add-user"
+      :username username
+      :email email
+      :passwords-match (equal password password-verification)
+      :new-roles (format nil "~{~a~^, ~}" new-roles)
+      :user user
+      :roles (format nil "~{~a~^, ~}" roles))
+    
+    ;; Is user authorized?
+    (unless (member *root-role* roles :test 'equal)
+      (u:log-it-pairs :info
+        :details "Authorization failed"
+        :user user)
+      (return-from add-user-handler
+        (page
+          (s:with-html-string
+            (:p "Error: Authorization for /add-user failed"))
+          :subtitle "Error Adding User"
+          :user user)))
+
+    ;; Do the passwords match?
+    (unless (equal password password-verification)
+      (return-from add-user-handler
+        (error-page user "Add User" "Passwords don't match")))
+    (handler-case
+      ;; Add the user
+      (let ((user-id (a:d-add-user *rbac* username password 
+                       :roles new-roles
+                       :email email)))
+        ;; Did the add fail?
+        (unless user-id
+          (return-from add-user-handler
+            (error-page "Add User" user "Failed to add user '~a'" username)))
+        ;; Yay! User added successfully
+        (page
+          (s:with-html-string
+            (:p (format nil "Successfully added user ~a" username)))
+          :subtitle "Added User"
+          :user user))
+      ;; There was a specific problem when adding the user
+      (error (e)
+        (error-page "ADD User" user "Failed to add user ~a. ~a" username e)))))
+  
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
@@ -570,7 +719,9 @@ file name and returns the path to the file with a trailing slash."
       (setf (h:return-code*) h:+http-method-not-allowed+)
       (return-from list-users-handler "Method Not Allowed"))
 
-    (render-user-list page page-size)))
+    (s:with-html-string
+      (:raw (render-user-list page page-size))
+      (:raw (render-new-user-form)))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -614,6 +765,10 @@ file name and returns the path to the file with a trailing slash."
   (unless (a:get-id *rbac* "users" *guest-username*)
     (a:d-add-user *rbac* *guest-username* *guest-password*
       :roles (list *guest-role*)))
+  ;; Remove logged-in role from guest if necessary
+  (when (member "logged-in" (db-list-roles *guest-username*)
+          :test 'equal)
+    (a:d-remove-user-role *rbac* *guest-username* "logged-in"))
   ;; Add the root directory to the resources, in such a way that
   ;; everyone (guest) have access
   (unless (a:get-id *rbac* "resources" "/")
