@@ -240,7 +240,9 @@ file name and returns the path to the file with a trailing slash."
                                          ((re:scan "[?]$" beg) "~a~a=~a")
                                          ((re:scan "[?]" beg) "~a&~a=~a")
                                          (t "~a?~a=~a"))))
-                    (format nil format-string beg key (h:url-encode value)))
+                    (format nil format-string 
+                      beg key
+                      (h:url-encode (format nil "~a" value))))
                   (or beg url))
       finally (return url))))
 
@@ -692,6 +694,47 @@ file name and returns the path to the file with a trailing slash."
       ;; There was a specific problem when adding the user
       (error (e)
         (error-page "ADD User" user "Failed to add user ~a. ~a" username e)))))
+
+(defun render-pager (url current-page page-size element-count 
+                      &optional (link-count 5))
+  (loop
+    with page-count = (ceiling element-count page-size)
+    with link-count-half = (floor link-count 2)
+    with first-page = (max 1 (- current-page link-count-half))
+    with last-page = (min page-count (+ current-page link-count-half))
+    with page-1 = (when (> first-page 1) 1)
+    with page-n = (when (< last-page page-count) page-count)
+    with check-current-page = (when (or 
+                                      (< current-page 1)
+                                      (> current-page page-count))
+                                (error
+                                  (u:log-it-pairs :error
+                                    :details "CURRENT-PAGE is out of bounds"
+                                    :current-page curent-page
+                                    :first-page 1
+                                    :last-page page-count)))
+    with pages = (remove-if-not
+                   #'identity
+                   (append 
+                     (list page-1)
+                     (loop for page from first-page to last-page collect page)
+                     (list page-n)))
+    for page in pages
+    for next-page in (cdr (append pages (list 0)))
+    for index from 1 to (length pages)
+    collect (s:with-html-string
+              (:a :class (if (= page current-page) "current-page" "page")
+                :href (add-to-url-query url "page" page)
+                (format nil "~d" page))
+              (:span :class "page-separator"
+                (if (> next-page (1+ page)) "..." " ")))
+    into pager
+    finally (return
+              (when (> (length pages) 1)
+                (s:with-html-string
+                  (:comment "Pager")
+                  (:span :class "pager-title" "Page: ")
+                  (:span :class "pager" (:raw (format nil "~{~a~}" pager))))))))
   
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
