@@ -279,10 +279,11 @@ file name and returns the path to the file with a trailing slash."
           (:title title)
           (:link :rel "stylesheet" :href "/css"))
         (:body
-          (:raw (menu user subtitle))
-          (:h1 title)
-          (when subtitle (:h2 subtitle))
-          (:raw content))))))
+          (:div :class "main-page"
+            (:raw (menu user subtitle))
+            (:h1 title)
+            (when subtitle (:h2 subtitle))
+            (:raw content)))))))
 
 (defun assemble-breadcrumbs (path)
   (loop
@@ -423,66 +424,74 @@ file name and returns the path to the file with a trailing slash."
 
 (defun generate-css ()
   (l:compile-and-write
-    `(.listing :list-style-type none
-       (a :display "flex" :align-items "center")
-       (img :margin-right "8px"))
-    `(.breadcrumb
-       :display "flex"
-       :align-items "center"
-       :gap "8px"
-       (img :vertical-align "middle")
-       (div :display "inline" :font-size "24px"))
-    `(.access-list :margin-left "32px" :display "flex"
-       (img :vertical-align "middle")
-       (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
-    `(.menu-item-separator :margin-left "8px" :margin-right "8px")
-    `("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
-       ("#menu-item-user"
+    `(.main-page 
+       :margin-left "5rem" 
+       :justify-content "center"
+       :max-width "55rem"
+       (.listing 
+         :list-style-type none
+         (a :display "flex" :align-items "center")
+         (img :margin-right "8px"))
+       (.breadcrumb
          :display "flex"
          :align-items "center"
-         :margin-right "8px"
-         (img :width "16px" :height "16px" :margin-right "4px")
-         (a :align-items "center" :margin-right "4px")
-         (.status-user
-           :font-weight 500
-           :margin-right "4px"))
-       ("#menu-item-users"
-         :display "flex"
-         :align-items "center"
-         :margin-right "8px"))
-    `(.list-of-users 
-       :padding-left "10px" 
-       :border-spacing "0"
-       :border-bottom "1px solid black"
-       (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
-       (td :padding-right "10px"))
-    `(.add-user
-       :padding-top "45px"
-       :display "flex"
-       :flex-direction "column"
-       :align-items "flex-start"
-       :max-width "30rem"
-       (.form-group
-         :display "flex"
-         :align-items "flex-start"
-         :margin-bottom ".75rem"
-         (label
-           :width "12rem"
-           :text-align "right"
-           :margin-right "1rem"
-           :flex-shrink "0")
-         (.textinput
-           :flex "1"
-           :width "16rem"
-           :max-width "30rem"))
-       (.checkbox-group
+         :gap "8px"
+         (img :vertical-align "middle")
+         (div :display "inline" :font-size "24px"))
+       (.access-list :margin-left "32px" :display "flex"
+         (img :vertical-align "middle")
+         (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
+       (.menu-item-separator :margin-left "8px" :margin-right "8px")
+       ("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
+         ("#menu-item-user"
+           :display "flex"
+           :align-items "center"
+           :margin-right "8px"
+           (img :width "16px" :height "16px" :margin-right "4px")
+           (a :align-items "center" :margin-right "4px")
+           (.status-user
+             :font-weight 500
+             :margin-right "4px"))
+         ("#menu-item-users"
+           :display "flex"
+           :align-items "center"
+           :margin-right "8px"))
+       (.list-of-users 
+         :padding-left "1rem" 
+         :border-spacing "0"
+         :border-bottom "1px solid black"
+         (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
+         (td :padding-right "10px"))
+       (.add-user
+         :padding-top "3rem"
          :display "flex"
          :flex-direction "column"
-         :gap ".35rem"
-         :margin-top ".25rem"
-         (.checkbox
-           (input :margin-right ".35rem")))
-       (button :align-self "flex-end"))))
+         :max-width "30rem"
+         (.form-group
+           :display "flex"
+           :align-items "flex-start"
+           :margin-bottom ".75rem"
+           (label
+             :width "12rem"
+             :text-align "right"
+             :margin-right "1rem"
+             :flex-shrink "0")
+           (.textinput
+             :flex "1"
+             :width "16rem"
+             :max-width "30rem"))
+         (.checkbox-group
+           :display "flex"
+           :flex-direction "column"
+           :gap ".35rem"
+           :margin-top ".25rem"
+           (.checkbox
+             (input :margin-right ".35rem")))
+         (button :align-self "flex-end"))
+       (.pager
+         :display "flex"
+         :justify-content "center"
+         :margin-top "1rem"))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
@@ -575,20 +584,17 @@ file name and returns the path to the file with a trailing slash."
     into rows
     finally
     (return
-      (page
-        (s:with-html-string
-          (:table :class "list-of-users"
-            (:thead
-              (:tr
-                (:th "User")
-                (:th "Email")
-                (:th "Created")
-                (:th "Last Login")
-                (:th "Roles")))
-            (:tbody
-              (:raw (format nil "~{~a~%~}" rows)))))
-        :subtitle "User List"
-        :user *root-username*))))
+      (s:with-html-string
+        (:table :class "list-of-users"
+          (:thead
+            (:tr
+              (:th "User")
+              (:th "Email")
+              (:th "Created")
+              (:th "Last Login")
+              (:th "Roles")))
+          (:tbody
+            (:raw (format nil "~{~a~%~}" rows))))))))
 
 (defun render-new-user-form ()
   (let ((roles (remove-if
@@ -697,6 +703,12 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-pager (url current-page page-size element-count 
                       &optional (link-count 5))
+  (u:log-it-pairs :debug :detail "render-pager"
+    :url url
+    :current-page current-page
+    :page-size page-size
+    :element-count element-count
+    :link-count link-count)
   (loop
     with page-count = (ceiling element-count page-size)
     with link-count-half = (floor link-count 2)
@@ -730,21 +742,24 @@ file name and returns the path to the file with a trailing slash."
                 (if (> next-page (1+ page)) "..." " ")))
     into pager
     finally (return
-              (when (> (length pages) 1)
+              (if (> (length pages) 1)
                 (s:with-html-string
                   (:comment "Pager")
-                  (:span :class "pager-title" "Page: ")
-                  (:span :class "pager" (:raw (format nil "~{~a~}" pager))))))))
+                  (:div :class "pager"
+                    (:span :class "title" "Page: ")
+                    (:span :class "pages" (:raw (format nil "~{~a~}" pager)))))
+                ""))))
   
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
-    (page-size :parameter-type 'integer :init-form 20))
+    (page-size :parameter-type 'integer :init-form 10))
   (let* ((method (h:request-method*))
           (token (h:session-value :jwt-token))
           (user (when token (validate-jwt token))))
 
     (u:log-it-pairs :debug :details "Handling /list-users"
-      :token token :user user :method method)
+      :token token :user user :method method
+      :page page :page-size page-size)
 
     ;; Is user authorized?
     (unless (equal user *root-username*)
@@ -762,9 +777,14 @@ file name and returns the path to the file with a trailing slash."
       (setf (h:return-code*) h:+http-method-not-allowed+)
       (return-from list-users-handler "Method Not Allowed"))
 
-    (s:with-html-string
-      (:raw (render-user-list page page-size))
-      (:raw (render-new-user-form)))))
+    (page 
+      (s:with-html-string
+        (:raw (render-user-list page page-size))
+        (:raw (render-pager "/list-users"
+                page page-size (a:list-users-count *rbac*)))
+        (:raw (render-new-user-form)))
+      :user user
+      :subtitle "List Users")))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
