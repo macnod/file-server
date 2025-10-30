@@ -134,13 +134,22 @@ exists. Otherwise, logs a message and returns NIL."
 directory's ID if it does and NIL otherwise."
   (a:get-id *rbac* "resources" directory))
 
+(defun readable-timestamp (universal-time)
+  "Return UNIVERSAL-TIME formatted as a timestamp that reads like this:
+YYYY-MM-DD HH:MM. If UNIVERSAL-TIME is NIL or :NULL, this function returns an
+empty string."
+  (if (and universal-time (not (eql universal-time :null)))
+    (let ((ts (u:timestamp-string :universal-time universal-time)))
+      (subseq (re:regex-replace "T" ts " ") 0 16))
+    ""))
+
 (defun db-user-id (user password)
   (a:d-login *rbac* user password))
 
 (defun db-list-roles (user)
   (when user
     (handler-case
-      (a:list-user-role-names *rbac* user :page-size 1000)
+      (a:list-user-role-names-regular *rbac* user :page-size 1000)
       (error (e)
         (u:log-it-pairs :error
           :detail (format nil "Failed to retrieve roles for user '~a'" user)
@@ -456,42 +465,47 @@ file name and returns the path to the file with a trailing slash."
            :display "flex"
            :align-items "center"
            :margin-right "8px"))
-       (.list-of-users 
-         :padding-left "1rem" 
-         :border-spacing "0"
-         :border-bottom "1px solid black"
-         (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
-         (td :padding-right "10px"))
-       (.add-user
-         :padding-top "3rem"
+       (.list-users-content
          :display "flex"
-         :flex-direction "column"
-         :max-width "30rem"
-         (.form-group
+         :align-items "flex-start"
+         :gap "1rem"
+         :margin-top "1.5rem"
+         :flex-wrap "wrap"
+         (table
+           :border-spacing "0"
+           :border-bottom "1px solid black"
+           :width "60rem"
+           (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
+           (td :padding-right "10px" :vertical-align "top" :height "1rem"
+           ("tr:nth-child(even)" :background-color "#f2f2f2"))
+         (.pager
+           :margin-top "0.1rem"
+           :width "100%"
            :display "flex"
-           :align-items "flex-start"
-           :margin-bottom ".75rem"
-           (label
-             :width "12rem"
-             :text-align "right"
-             :margin-right "1rem"
-             :flex-shrink "0")
-           (.textinput
-             :flex "1"
-             :width "16rem"
-             :max-width "30rem"))
-         (.checkbox-group
+           :justify-content "center")
+         (.add-user
+           :margin-top "1rem"
            :display "flex"
            :flex-direction "column"
-           :gap ".35rem"
-           :margin-top ".25rem"
-           (.checkbox
-             (input :margin-right ".35rem")))
-         (button :align-self "flex-end"))
-       (.pager
-         :display "flex"
-         :justify-content "center"
-         :margin-top "1rem"))))
+           :width "50%"
+           (.form-group
+             :display "flex"
+             :align-items "flex-start"
+             :margin-bottom "0.5rem"
+             (label
+               :width "12rem"
+               :text-align "right"
+               :margin-right "0.5rem"
+               :flex-shrink "0")
+             (.textinput :flex "1"))
+           (.checkbox-group
+             :display "flex"
+             :flex-direction "column"
+             :gap ".35rem"
+             :margin-top ".25rem"
+             (.checkbox
+               (input :margin-right ".35rem")))
+           (button :align-self "center"))))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
@@ -563,7 +577,8 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-user-list (page page-size)
   (loop
-    for user in (a:list-users *rbac* page page-size)
+    with users = (a:list-users *rbac* page page-size)
+    for user in users
     for username = (getf user :username)
     for email = (getf user :email)
     for created = (getf user :created-at)
@@ -574,27 +589,28 @@ file name and returns the path to the file with a trailing slash."
       (:tr
         (:td username)
         (:td email)
-        (:td (if (and created (not (eql created :null)))
-               (u:timestamp-string :universal-time created)
-               ""))
-        (:td (if (and last-login (not (eql last-login :null)))
-               (u:timestamp-string :universal-time last-login)
-               ""))
+        (:td (readable-timestamp created))
+        (:td (readable-timestamp last-login))
         (:td (format nil "~{~a~^, ~}" roles))))
     into rows
     finally
     (return
-      (s:with-html-string
-        (:table :class "list-of-users"
-          (:thead
-            (:tr
-              (:th "User")
-              (:th "Email")
-              (:th "Created")
-              (:th "Last Login")
-              (:th "Roles")))
-          (:tbody
-            (:raw (format nil "~{~a~%~}" rows))))))))
+      (let* ((blank-rows (when (< (length users) page-size)
+                           (loop for a from (length users) to page-size collect
+                             (s:with-html-string 
+                               (:tr (:td :colspan "5" (:raw "&nbsp;")))))))
+              (all-rows (append rows blank-rows)))
+        (s:with-html-string
+          (:table
+            (:thead
+              (:tr
+                (:th "User")
+                (:th "Email")
+                (:th "Created")
+                (:th "Last Login")
+                (:th "Roles")))
+            (:tbody
+              (:raw (format nil "~{~a~%~}" all-rows)))))))))
 
 (defun render-new-user-form ()
   (let ((roles (remove-if
@@ -608,25 +624,25 @@ file name and returns the path to the file with a trailing slash."
         :action "/add-user" :method "post"
         :autocomplete "off"
         (:div :class "form-group"
-          (:label :for "emanresu" "Handle")
+          (:label :for "emanresu" "Handle:")
           (:input :type "text" :id "emanresu" :class "textinput"
             :name "emanresu" :required t))
         (:div :class "form-group"
-          (:label :for "liame" "Contact")
+          (:label :for "liame" "Contact:")
           (:input :type "text" :id "liame" :class "textinput"
             :name "liame" :required t))
         (:div :class "form-group"
-          (:label :for "drowssap" "Password")
+          (:label :for "drowssap" "Password:")
           (:input :type "text" :id "drowssap" :class "textinput"
             :name "drowssap" :required t))
         (:div :class "form-group"
-          (:label :for "text" "Password Verification")
+          (:label :for "text" "Password Verification:")
           (:input :type "" :id "password-verification"
             :class "textinput"
             :name "password-verification" 
             :required t))
         (:div :class "form-group"
-          (:label "Roles")
+          (:label "Roles:")
           (:div :class "checkbox-group"
             (:raw (loop for role in roles collect
                     (s:with-html-string 
@@ -752,7 +768,7 @@ file name and returns the path to the file with a trailing slash."
   
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
-    (page-size :parameter-type 'integer :init-form 10))
+    (page-size :parameter-type 'integer :init-form 20))
   (let* ((method (h:request-method*))
           (token (h:session-value :jwt-token))
           (user (when token (validate-jwt token))))
@@ -779,10 +795,11 @@ file name and returns the path to the file with a trailing slash."
 
     (page 
       (s:with-html-string
-        (:raw (render-user-list page page-size))
-        (:raw (render-pager "/list-users"
-                page page-size (a:list-users-count *rbac*)))
-        (:raw (render-new-user-form)))
+        (:div :class "list-users-content"
+          (:raw (render-user-list page page-size))
+          (:raw (render-pager "/list-users"
+                  page page-size (a:list-users-count *rbac*)))
+          (:raw (render-new-user-form))))
       :user user
       :subtitle "List Users")))
 
