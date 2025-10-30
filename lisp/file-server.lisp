@@ -433,10 +433,10 @@ file name and returns the path to the file with a trailing slash."
 
 (defun generate-css ()
   (l:compile-and-write
-    `(.main-page 
-       :margin-left "5rem" 
-       :justify-content "center"
-       :max-width "55rem"
+    `(.main-page
+       :max-width "60rem"
+       :margin "0 auto"
+       :padding "1rem"
        (.listing 
          :list-style-type none
          (a :display "flex" :align-items "center")
@@ -466,46 +466,46 @@ file name and returns the path to the file with a trailing slash."
            :align-items "center"
            :margin-right "8px"))
        (.list-users-content
-         :display "flex"
-         :align-items "flex-start"
-         :gap "1rem"
-         :margin-top "1.5rem"
-         :flex-wrap "wrap"
+         :width "100%"
+         :align-items "center"
          (table
+           :width "100%"
+           :margin-bottom "1.5rem"
            :border-spacing "0"
-           :border-bottom "1px solid black"
-           :width "60rem"
-           (th :text-align "left" :padding-right "10px" :border-bottom "1px solid black")
-           (td :padding-right "10px" :vertical-align "top" :height "1rem"
+           (th :text-align "left"
+             :border-bottom "1px solid black")
+           (td :text-align "left")
            ("tr:nth-child(even)" :background-color "#f2f2f2"))
          (.pager
-           :margin-top "0.1rem"
-           :width "100%"
+           :text-align "center"
            :display "flex"
-           :justify-content "center")
-         (.add-user
+           :justify-content "center"
+           :align-items "center"
+           :gap "0.5rem"
+           :font-size "0.95rem")
+         (form
+           :display "grid"
+           :align-items "start"
            :margin-top "1rem"
-           :display "flex"
-           :flex-direction "column"
-           :width "50%"
+           :padding "1.5rem"
+           :gap "0.5rem"
            (.form-group
              :display "flex"
-             :align-items "flex-start"
-             :margin-bottom "0.5rem"
+             :align-items "right"
              (label
-               :width "12rem"
+               :grid-column "1"
+               :width "20rem"
                :text-align "right"
-               :margin-right "0.5rem"
-               :flex-shrink "0")
-             (.textinput :flex "1"))
+               :margin-right "0.5em")
+             (.textinput 
+               :grid-column "2"
+               :width "50%"))
            (.checkbox-group
-             :display "flex"
-             :flex-direction "column"
-             :gap ".35rem"
-             :margin-top ".25rem"
-             (.checkbox
-               (input :margin-right ".35rem")))
-           (button :align-self "center")))))))
+             :grid-column "2")
+           (button 
+             :grid-column "1 / -1"
+             :justify-self "center"
+             :margin-top "1rem"))))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
@@ -620,7 +620,7 @@ file name and returns the path to the file with a trailing slash."
                      (re:scan ":exclusive$" r)))
                  (a:list-role-names *rbac* :page-size 1000))))
     (s:with-html-string
-      (:form :id "add-user" :class "add-user"
+      (:form :id "add-user"
         :action "/add-user" :method "post"
         :autocomplete "off"
         (:div :class "form-group"
@@ -636,11 +636,9 @@ file name and returns the path to the file with a trailing slash."
           (:input :type "text" :id "drowssap" :class "textinput"
             :name "drowssap" :required t))
         (:div :class "form-group"
-          (:label :for "text" "Password Verification:")
-          (:input :type "" :id "password-verification"
-            :class "textinput"
-            :name "password-verification" 
-            :required t))
+          (:label :for "password-verification" "Password Verification:")
+          (:input :type "text" :id "password-verification" :class "textinput"
+            :name "password-verification" :required t))
         (:div :class "form-group"
           (:label "Roles:")
           (:div :class "checkbox-group"
