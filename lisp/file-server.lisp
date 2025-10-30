@@ -505,7 +505,7 @@ file name and returns the path to the file with a trailing slash."
              :margin-top ".25rem"
              (.checkbox
                (input :margin-right ".35rem")))
-           (button :align-self "center"))))))
+           (button :align-self "center")))))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
