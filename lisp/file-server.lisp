@@ -129,6 +129,35 @@ exists. Otherwise, logs a message and returns NIL."
 ;; End custom Hunchentoot acceptor
 ;;
 
+(defun invert-hex-color (hex-string)
+  "Return the inverse color of the color represented by HEX-STRING. HEX-STRING
+is a 3-digit or 6-digit hexadecimal value that is optionally prefixed by the
+# symbol. Examples of valid values for HEX-STRING: #00FF33, #FFF, AA77CE, 123.
+This function returns the inverted value using the same number of hexadecimal
+digits provided in HEX-STRING, but always prefixes the return value with the
+# symbol. If HEX-STRING is invalid, this function raises an error."
+  (let* ((color (string-trim "# " hex-string))
+          (short (= (length color) 3))
+          (full-color (if short
+                        (loop for char across color
+                          append (list char char) into full
+                          finally (return (map 'string 'identity full)))
+                        color))
+          (components (loop for a from 0 to 4 by 2
+                        for b = (+ a 2)
+                        collect
+                        (parse-integer (subseq full-color a b) :radix 16)))
+          (inverse-components (loop for component in components
+                                collect (- 255 component)))
+          (hex-components (loop for value in inverse-components
+                            collect (format nil "~2,'0x" value)))
+          (final-components (if short
+                              (mapcar
+                                (lambda (c) (subseq c 0 1))
+                                hex-components)
+                              hex-components)))
+    (format nil "#~{~a~}" final-components)))
+
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
 directory's ID if it does and NIL otherwise."
@@ -146,10 +175,12 @@ empty string."
 (defun db-user-id (user password)
   (a:d-login *rbac* user password))
 
-(defun db-list-roles (user)
+(defun db-list-roles (user &optional all-roles)
   (when user
     (handler-case
-      (a:list-user-role-names-regular *rbac* user :page-size 1000)
+      (if all-roles
+        (a:list-user-role-names *rbac* user :page-size 1000)
+        (a:list-user-role-names-regular *rbac* user :page-size 1000))
       (error (e)
         (u:log-it-pairs :error
           :detail (format nil "Failed to retrieve roles for user '~a'" user)
@@ -249,34 +280,31 @@ file name and returns the path to the file with a trailing slash."
                                          ((re:scan "[?]$" beg) "~a~a=~a")
                                          ((re:scan "[?]" beg) "~a&~a=~a")
                                          (t "~a?~a=~a"))))
-                    (format nil format-string 
+                    (format nil format-string
                       beg key
                       (h:url-encode (format nil "~a" value))))
                   (or beg url))
       finally (return url))))
 
 (defun menu (user subtitle)
-  (let* ((roles (db-list-roles user))
+  (let* ((roles (db-list-roles user t))
           (is-admin (member *root-role* roles :test 'equal)))
     (s:with-html-string
-      (:div :id "menu-bar"
-        (:div :id "menu-item-files"
-          (:a :href "/files" "files"))
-        (:div :class "menu-item-separator" "|")
-        (when is-admin
-          (:div :id "menu-item-users"
-            (:a :href "/list-users" "list users"))
-          (:div :class "menu-item-separator" "|"))
-        (if user
-          (:div :id "menu-item-user"
-            (:img :src "/image?name=user.png")
-            (:span :class "status-user" user)
-            (:a :href "/logout" (if (equal user *guest-username*)
-                                  "log in"
-                                  "log out")))
-          (unless (equal subtitle "Log In")
-            (:div :id "menu-item-user"
-              (:a :href "/logout" "log in"))))))))
+      (:nav :class "navbar"
+        (:ul :class "nav-menu"
+          (:li (:a :href "/files" "files"))
+          (when is-admin
+            (:li (:a :href "/list-users" "list users")))
+          (if user
+            (:li (:a :href "/logout"
+                   (:img :src "/image?name=user.png")
+                   (:span :class "user" user)
+                   (:span :class "login"
+                     (if (equal user *guest-username*)
+                       "[log in]"
+                       "[log out]"))))
+            (unless (equal subtitle "Log In")
+              (:li (:a :href "/logout" "log in")))))))))
 
 (defun page (content &key subtitle user)
   (u:log-it-pairs :debug :details "Rendering page" :subtitle subtitle :user user)
@@ -290,7 +318,7 @@ file name and returns the path to the file with a trailing slash."
         (:body
           (:div :class "main-page"
             (:raw (menu user subtitle))
-            (:h1 title)
+            (:div :class "title" title)
             (when subtitle (:h2 subtitle))
             (:raw content)))))))
 
@@ -432,80 +460,116 @@ file name and returns the path to the file with a trailing slash."
   (h:handle-static-file *file-server-js*))
 
 (defun generate-css ()
-  (l:compile-and-write
-    `(.main-page
-       :max-width "60rem"
-       :margin "0 auto"
-       :padding "1rem"
-       (.listing 
-         :list-style-type none
-         (a :display "flex" :align-items "center")
-         (img :margin-right "8px"))
-       (.breadcrumb
-         :display "flex"
-         :align-items "center"
-         :gap "8px"
-         (img :vertical-align "middle")
-         (div :display "inline" :font-size "24px"))
-       (.access-list :margin-left "32px" :display "flex"
-         (img :vertical-align "middle")
-         (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
-       (.menu-item-separator :margin-left "8px" :margin-right "8px")
-       ("#menu-bar" :display "flex" :align-items "center" :font-family "monospace"
-         ("#menu-item-user"
+  (let ((page-background-color "#fff")
+         (navbar-background-color "#eee")
+         (navbar-font-family "mono")
+         (nav-menu-color "#222")
+         (nav-menu-after-color "#ddd")
+         (nav-menu-hover-color "#0c0")
+         (nav-menu-active-color "#fff"))
+    (l:compile-and-write
+      `(.main-page
+         :background-color ,page-background-color
+         :max-width "60rem"
+         :margin "0 auto"
+         :padding "1rem"
+         (.title :font-family "mono" :font-size "2rem" :text-align "center")
+         (.listing
+           :list-style-type none
+           (a :display "flex" :align-items "center")
+           (img :margin-right "8px"))
+         (.breadcrumb
            :display "flex"
            :align-items "center"
-           :margin-right "8px"
-           (img :width "16px" :height "16px" :margin-right "4px")
-           (a :align-items "center" :margin-right "4px")
-           (.status-user
-             :font-weight 500
-             :margin-right "4px"))
-         ("#menu-item-users"
-           :display "flex"
-           :align-items "center"
-           :margin-right "8px"))
-       (.list-users-content
-         :width "100%"
-         :align-items "center"
-         (table
-           :width "100%"
-           :margin-bottom "1.5rem"
-           :border-spacing "0"
-           (th :text-align "left"
-             :border-bottom "1px solid black")
-           (td :text-align "left")
-           ("tr:nth-child(even)" :background-color "#f2f2f2"))
-         (.pager
-           :text-align "center"
-           :display "flex"
-           :justify-content "center"
-           :align-items "center"
-           :gap "0.5rem"
-           :font-size "0.95rem")
-         (form
-           :display "grid"
-           :align-items "start"
-           :margin-top "1rem"
-           :padding "1.5rem"
-           :gap "0.5rem"
-           (.form-group
+           :gap "8px"
+           (img :vertical-align "middle")
+           (div :display "inline" :font-size "24px"))
+         (.access-list :margin-left "32px" :display "flex"
+           (img :vertical-align "middle")
+           (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
+
+         (.navbar
+           :background-color ,navbar-background-color
+           :font-family ,navbar-font-family
+           :font-size "1.2rem"
+           :padding "0 2rem"
+           :box-shadow "0 2px 5px rgba(0, 0, 0, 0.1)"
+           (.nav-menu
              :display "flex"
-             :align-items "right"
-             (label
-               :grid-column "1"
-               :width "20rem"
-               :text-align "right"
-               :margin-right "0.5em")
-             (.textinput 
-               :grid-column "2"
-               :width "50%"))
-           (.checkbox-group
-             :grid-column "2")
-           (button 
-             :grid-column "1 / -1"
-             :justify-self "center"
-             :margin-top "1rem"))))))
+             :list-style "none"
+             :justify-content "center"
+             (li :margin "0"
+               (a
+                 :display "block"
+                 :color ,nav-menu-color
+                 :text-decoration "none"
+                 :padding "1rem 1.5rem"
+                 :font-weight "500"
+                 :transition "all 0.3s ease"
+                 :position "relative"
+                 (.user :padding-right "0.2rem")
+                 (.login :font-size "0.75rem" :vertical-align "sub"))
+               ("a::after"
+                 :content ""
+                 :position "absolute"
+                 :width "0"
+                 :height "3px"
+                 :bottom "0"
+                 :left "50%"
+                 :background-color ,nav-menu-after-color
+                 :transition "all 0.3s ease"
+                 :transform "translateX(-50%)")
+               ("a:hover"
+                 :color ,nav-menu-hover-color
+                 :background-color "rgba(255, 255, 255, 0.1)")
+               ("a:hover::after" :width "70%")
+               ("a.active"
+                 :color ,nav-menu-active-color
+                 :font-weight "600")
+               ("a.active::after" :width "70%")
+               (img :width "18px" :height "18px" :margin-right "4px"))))
+
+         (.list-users-content
+           :width "100%"
+           :align-items "center"
+           (table
+             :width "100%"
+             :margin-bottom "1.5rem"
+             :border-spacing "0"
+             (th :text-align "left"
+               :border-bottom "1px solid black")
+             (td :text-align "left")
+             ("tr:nth-child(even)" :background-color "#f2f2f2"))
+           (.pager
+             :text-align "center"
+             :display "flex"
+             :justify-content "center"
+             :align-items "center"
+             :gap "0.5rem"
+             :font-size "0.95rem")
+           (form
+             :display "grid"
+             :align-items "start"
+             :margin-top "1rem"
+             :padding "1.5rem"
+             :gap "0.5rem"
+             (.form-group
+               :display "flex"
+               :align-items "right"
+               (label
+                 :grid-column "1"
+                 :width "20rem"
+                 :text-align "right"
+                 :margin-right "0.5em")
+               (.textinput
+                 :grid-column "2"
+                 :width "50%"))
+             (.checkbox-group
+               :grid-column "2")
+             (button
+               :grid-column "1 / -1"
+               :justify-self "center"
+               :margin-top "1rem")))))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
@@ -595,9 +659,9 @@ file name and returns the path to the file with a trailing slash."
     into rows
     finally
     (return
-      (let* ((blank-rows (when (< (length users) page-size)
+      (let* ((blank-rows (when (and (< (length users) page-size) (> page 1))
                            (loop for a from (length users) to page-size collect
-                             (s:with-html-string 
+                             (s:with-html-string
                                (:tr (:td :colspan "5" (:raw "&nbsp;")))))))
               (all-rows (append rows blank-rows)))
         (s:with-html-string
@@ -643,7 +707,7 @@ file name and returns the path to the file with a trailing slash."
           (:label "Roles:")
           (:div :class "checkbox-group"
             (:raw (loop for role in roles collect
-                    (s:with-html-string 
+                    (s:with-html-string
                       (:div :class "checkbox"
                         (:label
                           (:input :type "checkbox"
@@ -655,13 +719,13 @@ file name and returns the path to the file with a trailing slash."
         (:button :type "submit" "Create")))))
 
 (defun error-page (origin user error-description &rest params)
-  (let* ((err-desc (apply #'format 
+  (let* ((err-desc (apply #'format
                      (append (list nil error-description) params)))
          (err (format nil "Error in ~a: ~a" origin err-desc)))
     (u:log-it-pairs :details err :user (or user "(unknown)"))
     (page (s:with-html-string (:p err)) :subtitle "Error" :user user)))
 
-(h:define-easy-handler (add-user-handler :uri "/add-user" 
+(h:define-easy-handler (add-user-handler :uri "/add-user"
                          :default-request-type :post)
   ((username :real-name "emanresu")
     (email :real-name "liame")
@@ -679,7 +743,7 @@ file name and returns the path to the file with a trailing slash."
       :new-roles (format nil "~{~a~^, ~}" new-roles)
       :user user
       :roles (format nil "~{~a~^, ~}" roles))
-    
+
     ;; Is user authorized?
     (unless (member *root-role* roles :test 'equal)
       (u:log-it-pairs :info
@@ -698,7 +762,7 @@ file name and returns the path to the file with a trailing slash."
         (error-page user "Add User" "Passwords don't match")))
     (handler-case
       ;; Add the user
-      (let ((user-id (a:d-add-user *rbac* username password 
+      (let ((user-id (a:d-add-user *rbac* username password
                        :roles new-roles
                        :email email)))
         ;; Did the add fail?
@@ -715,7 +779,7 @@ file name and returns the path to the file with a trailing slash."
       (error (e)
         (error-page "ADD User" user "Failed to add user ~a. ~a" username e)))))
 
-(defun render-pager (url current-page page-size element-count 
+(defun render-pager (url current-page page-size element-count
                       &optional (link-count 5))
   (u:log-it-pairs :debug :detail "render-pager"
     :url url
@@ -730,7 +794,7 @@ file name and returns the path to the file with a trailing slash."
     with last-page = (min page-count (+ current-page link-count-half))
     with page-1 = (when (> first-page 1) 1)
     with page-n = (when (< last-page page-count) page-count)
-    with check-current-page = (when (or 
+    with check-current-page = (when (or
                                       (< current-page 1)
                                       (> current-page page-count))
                                 (error
@@ -741,7 +805,7 @@ file name and returns the path to the file with a trailing slash."
                                     :last-page page-count)))
     with pages = (remove-if-not
                    #'identity
-                   (append 
+                   (append
                      (list page-1)
                      (loop for page from first-page to last-page collect page)
                      (list page-n)))
@@ -763,7 +827,7 @@ file name and returns the path to the file with a trailing slash."
                     (:span :class "title" "Page: ")
                     (:span :class "pages" (:raw (format nil "~{~a~}" pager)))))
                 ""))))
-  
+
 (h:define-easy-handler (list-users-handler :uri "/list-users")
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
@@ -791,7 +855,7 @@ file name and returns the path to the file with a trailing slash."
       (setf (h:return-code*) h:+http-method-not-allowed+)
       (return-from list-users-handler "Method Not Allowed"))
 
-    (page 
+    (page
       (s:with-html-string
         (:div :class "list-users-content"
           (:raw (render-user-list page page-size))

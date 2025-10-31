@@ -3,8 +3,14 @@
   - [X] Suppress /health check access logs
 - [-] Title and Menu
   - [X] Rudimentary functionality
-  - [ ] Remove trailing separator
-  - [ ] Improve appearance
+  - [X] Remove trailing separator
+  - [X] Improve appearance
+  - [ ] User item points to user page
+- [ ] User preferences page, with logout link
+  - [ ] Dark mode
+  - [ ] Log out
+  - [ ] Change password
+  - [ ] Change email
 - [X] Page
   - [X] Improve appearance of user info
 - [X] Files Page
