@@ -709,9 +709,6 @@ file name and returns the path to the file with a trailing slash."
       (:raw (format nil "~{~a~%~}" fields)))))
 
 (defun render-new-user-form ()
-  (let ((roles (a:list-role-names-regular 
-
-(defun render-new-user-form ()
   (let ((roles (remove-if
                  (lambda (r)
                    (or
