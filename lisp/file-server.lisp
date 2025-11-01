@@ -529,7 +529,7 @@ file name and returns the path to the file with a trailing slash."
                ("a.active::after" :width "70%")
                (img :width "18px" :height "18px" :margin-right "4px"))))
 
-         (.list-users-content
+         (.user-list
            :width "100%"
            :align-items "center"
            (table
@@ -547,7 +547,7 @@ file name and returns the path to the file with a trailing slash."
              :align-items "center"
              :gap "0.5rem"
              :font-size "0.95rem")
-           (form
+           (.add-user
              :display "grid"
              :align-items "start"
              :margin-top "1rem"
@@ -676,6 +676,41 @@ file name and returns the path to the file with a trailing slash."
             (:tbody
               (:raw (format nil "~{~a~%~}" all-rows)))))))))
 
+(defun input-text (name label required &optional password)
+  (s:with-html-string
+    (:div :class "form-group"
+      (:label :for name label)
+      (:input :type (if password "password" "text")
+        :id name 
+        :class "textinput"
+        :name name
+        :required required))))
+
+(defun input-checkbox-list (name label values)
+  (s:with-html-string
+    (:div :class "form-group"
+      (:label label)
+      (:div :class "checkbox-group"
+        (:raw (loop for value in values collect
+                (s:with-html-string
+                  (:div :class "checkbox"
+                    (:label
+                      (:input
+                        :type "checkbox"
+                        :name name
+                        :value value)
+                      value)))
+                into html
+                finally (return (format nil "~{a~%~}" html))))))))
+
+(defun input-form (id class action method fields)
+  (s:with-html-string
+    (:form :id id :class class :action action :method method
+      (:raw (format nil "~{~a~%~}" fields)))))
+
+(defun render-new-user-form ()
+  (let ((roles (a:list-role-names-regular 
+
 (defun render-new-user-form ()
   (let ((roles (remove-if
                  (lambda (r)
@@ -684,24 +719,23 @@ file name and returns the path to the file with a trailing slash."
                      (re:scan ":exclusive$" r)))
                  (a:list-role-names *rbac* :page-size 1000))))
     (s:with-html-string
-      (:form :id "add-user"
-        :action "/add-user" :method "post"
-        :autocomplete "off"
+      (:form :id "add-user" :class "add-user"
+        :action "/add-user" :method "post" :autocomplete "off"
         (:div :class "form-group"
-          (:label :for "emanresu" "Handle:")
-          (:input :type "text" :id "emanresu" :class "textinput"
-            :name "emanresu" :required t))
+          (:label :for "username" "Username")
+          (:input :type "text" :id "username" :class "textinput"
+            :name "username" :required t))
         (:div :class "form-group"
-          (:label :for "liame" "Contact:")
-          (:input :type "text" :id "liame" :class "textinput"
-            :name "liame" :required t))
+          (:label :for "email" "Email:")
+          (:input :type "text" :id "email" :class "textinput"
+            :name "email" :required t))
         (:div :class "form-group"
-          (:label :for "drowssap" "Password:")
-          (:input :type "text" :id "drowssap" :class "textinput"
-            :name "drowssap" :required t))
+          (:label :for "password" "Password:")
+          (:input :type "password" :id "password" :class "textinput"
+            :name "password" :required t))
         (:div :class "form-group"
           (:label :for "password-verification" "Password Verification:")
-          (:input :type "text" :id "password-verification" :class "textinput"
+          (:input :type "password" :id "password-verification" :class "textinput"
             :name "password-verification" :required t))
         (:div :class "form-group"
           (:label "Roles:")
@@ -727,9 +761,9 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (add-user-handler :uri "/add-user"
                          :default-request-type :post)
-  ((username :real-name "emanresu")
-    (email :real-name "liame")
-    (password :real-name "drowssap")
+  ((username)
+    (email)
+    (password)
     password-verification
     (new-roles :real-name "roles" :parameter-type '(list string)))
   (let* ((token (h:session-value :jwt-token))
@@ -857,7 +891,7 @@ file name and returns the path to the file with a trailing slash."
 
     (page
       (s:with-html-string
-        (:div :class "list-users-content"
+        (:div :class "user-list"
           (:raw (render-user-list page page-size))
           (:raw (render-pager "/list-users"
                   page page-size (a:list-users-count *rbac*)))
