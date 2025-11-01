@@ -77,7 +77,7 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/file-server:0.95.9
+          image: macnod/file-server:0.95.10
           imagePullPolicy: Never
           command: ["ros"]
           args:

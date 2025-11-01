@@ -687,67 +687,42 @@ file name and returns the path to the file with a trailing slash."
         :required required))))
 
 (defun input-checkbox-list (name label values)
-  (s:with-html-string
-    (:div :class "form-group"
-      (:label label)
-      (:div :class "checkbox-group"
-        (:raw (loop for value in values collect
-                (s:with-html-string
-                  (:div :class "checkbox"
-                    (:label
-                      (:input
-                        :type "checkbox"
-                        :name name
-                        :value value)
-                      value)))
-                into html
-                finally (return (format nil "~{a~%~}" html))))))))
+  (let ((checkboxes (loop for value in values
+                      for checkbox = (s:with-html-string
+                                       (:div :class "checkbox"
+                                         (:label
+                                           (:input
+                                             :type "checkbox"
+                                             :name name
+                                             :value value)
+                                           value)))
+                      collect checkbox into html
+                      finally (return (format nil "~{~a~%~}" html)))))
+    (s:with-html-string
+      (:div :class "form-group"
+        (:label label)
+        (:div :class "checkbox-group"
+          (:raw checkboxes))))))
 
-(defun input-form (id class action method fields)
+(defun input-form (id class action method &rest fields)
   (s:with-html-string
     (:form :id id :class class :action action :method method
       (:raw (format nil "~{~a~%~}" fields)))))
 
+(defun submit-button (display)
+  (s:with-html-string
+    (:button :type "submit" :class "submit-button" display)))
+
 (defun render-new-user-form ()
-  (let ((roles (remove-if
-                 (lambda (r)
-                   (or
-                     (member r '("logged-in" "guest" "system") :test 'equal)
-                     (re:scan ":exclusive$" r)))
-                 (a:list-role-names *rbac* :page-size 1000))))
+  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
     (s:with-html-string
-      (:form :id "add-user" :class "add-user"
-        :action "/add-user" :method "post" :autocomplete "off"
-        (:div :class "form-group"
-          (:label :for "username" "Username")
-          (:input :type "text" :id "username" :class "textinput"
-            :name "username" :required t))
-        (:div :class "form-group"
-          (:label :for "email" "Email:")
-          (:input :type "text" :id "email" :class "textinput"
-            :name "email" :required t))
-        (:div :class "form-group"
-          (:label :for "password" "Password:")
-          (:input :type "password" :id "password" :class "textinput"
-            :name "password" :required t))
-        (:div :class "form-group"
-          (:label :for "password-verification" "Password Verification:")
-          (:input :type "password" :id "password-verification" :class "textinput"
-            :name "password-verification" :required t))
-        (:div :class "form-group"
-          (:label "Roles:")
-          (:div :class "checkbox-group"
-            (:raw (loop for role in roles collect
-                    (s:with-html-string
-                      (:div :class "checkbox"
-                        (:label
-                          (:input :type "checkbox"
-                            :name "roles"
-                            :value role)
-                          role)))
-                    into html
-                    finally (return (format nil "~{~a~%~}" html))))))
-        (:button :type "submit" "Create")))))
+      (:raw (input-form "add-user" "add-user" "/add-user" "post"
+              (input-text "username" "Username:" t)
+              (input-text "email" "Email:" t)
+              (input-text "password" "Password:" t t)
+              (input-text "password-verification" "Password Verification" t t)
+              (input-checkbox-list "roles" "Roles:" roles)
+              (submit-button "Create"))))))
 
 (defun error-page (origin user error-description &rest params)
   (let* ((err-desc (apply #'format
