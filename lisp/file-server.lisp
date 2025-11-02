@@ -204,6 +204,23 @@ empty string."
     (u:hash-string (format nil "~{~a~^|~}" directory-list))
     ""))
 
+(defun alist-to-hashtable (alist &key collect)
+  (if collect
+    (loop with h = (make-hash-table :test 'equal)
+      for (key . value) in alist
+      for existing = (gethash key h)
+      when (null existing) do
+      (let ((array (setf (gethash key h)
+                     (make-array 100 :adjustable t :fill-pointer 0))))
+        (vector-push-extend value array))
+      else do
+      (vector-push-extend value existing)
+      finally (return h))
+    (loop with h = (make-hash-table :test 'equal)
+      for (key . value) in alist
+      do (setf (gethash key h) value)
+      finally (return h))))
+
 (defun sync-directories ()
   "Ensures that directories that have been added to the file system are added to
 the RBAC database, and that directories that have been removed from the file
@@ -269,6 +286,10 @@ file name and returns the path to the file with a trailing slash."
           (subseq (namestring p) (1- (length *document-root*))))
         (uiop:subdirectories path)))))
 
+(defun join-html (list &optional new-lines)
+  (let ((format-string (if new-lines "~{~a~%~}" "~{~a~}")))
+    (format nil format-string list)))
+
 (defun add-to-url-query (path &rest pairs)
   (when path
     (loop
@@ -277,9 +298,9 @@ file name and returns the path to the file with a trailing slash."
       for beg = path then url
       for url = (if (and key value)
                   (let ((format-string (cond
-                                         ((re:scan "[?]$" beg) "~a~a=~a")
-                                         ((re:scan "[?]" beg) "~a&~a=~a")
-                                         (t "~a?~a=~a"))))
+                                         ((re:scan "[?]$" beg) "~a~(~a~)=~a")
+                                         ((re:scan "[?]" beg) "~a&~(~a~)=~a")
+                                         (t "~a?~(~a~)=~a"))))
                     (format nil format-string
                       beg key
                       (h:url-encode (format nil "~a" value))))
@@ -415,9 +436,16 @@ file name and returns the path to the file with a trailing slash."
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (u:timestamp-string)))
 
-(h:define-easy-handler (login :uri "/login") (username password error redirect)
+(h:define-easy-handler (login-handler :uri "/login")
+  (username password error redirect)
   (setf (h:content-type*) "text/html")
-  (u:log-it-pairs :debug :details "Login page" :username username :error error)
+  (u:log-it-pairs :debug
+    :details "login-handler" 
+    :username username 
+    :error error
+    :redirect redirect)
+  (when (zerop (length redirect))
+    (setf redirect nil))
   (cond
     ((and (not error) (h:session-value :jwt-token))
       (u:log-it :debug "jwt-token is present, redirecting")
@@ -427,8 +455,8 @@ file name and returns the path to the file with a trailing slash."
       (let ((user-id (db-user-id username password)))
         (if user-id
           (let ((token (issue-jwt user-id)))
-            (u:log-it :info "Login successful for user ~a, redirecting"
-              username)
+            (u:log-it :info "Login successful for user ~a, redirecting to ~a"
+              username (or redirect "/files"))
             (h:start-session)
             (setf (h:session-value :jwt-token) token)
             (h:redirect (or redirect "/files") :protocol :https))
@@ -566,10 +594,34 @@ file name and returns the path to the file with a trailing slash."
                  :width "50%"))
              (.checkbox-group
                :grid-column "2")
-             (button
+             (.button-container
                :grid-column "1 / -1"
                :justify-self "center"
-               :margin-top "1rem")))))))
+               (.submit-button
+                 :margin-top "1rem"))))
+
+         (.delete-users-form 
+           :width "100%"
+           (.button-container
+             :display "flex"
+             :justify-content "right"))
+
+         (.confirmation
+           :width "100%"
+           :display "flex"
+           :flex-direction "column"
+           (.confirmation-form
+             :display "flex"
+             (.button-container
+               :margin-right "1rem"
+               (.cancel-button
+                 :color "#f00"
+                 :font-size "1.1rem")
+               (.confirm-button
+                 :color "#0c0"
+                 :font-size "1.1rem"))))
+
+         (.bogus-class :end "end")))))
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
@@ -586,95 +638,115 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
-  (let* ((abs-path (u:join-paths *document-root* path))
-          (path-only (clean-path path))
-          (method (h:request-method*))
-          (token (h:session-value :jwt-token))
-          (user (when token (validate-jwt token))))
+  (multiple-value-bind (user allowed)
+    (session-user '("guest" "logged-in"))
+    (let* ((abs-path (u:join-paths *document-root* path))
+            (path-only (clean-path path))
+            (method (h:request-method*)))
+      (u:log-it-pairs :debug
+        :details "files-handler"
+        :user user
+        :allowed allowed
+        :path path
+        :abs-path abs-path)
 
-    (u:log-it-pairs :debug
-      :details "Handling /files"
-      :token token :user user :method method :path path :abs-path abs-path)
+      ;; Is user authorized?
+      (unless allowed
+        (u:log-it-pairs :info
+          :details "Authorization failed"
+          :old-user user
+          :new-user *guest-username*)
+        (setf user *guest-username*))
 
-    ;; Is user authorized?
-    (unless user
+      ;; Is the method GET?
+      (unless (eql method :get)
+        (u:log-it-pairs :warn
+          :details "Method not allowed"
+          :user user :method method :path path)
+        (setf (h:return-code*) h:+http-method-not-allowed+)
+        (return-from files-handler "Method Not Allowed"))
+      (u:log-it :debug "Method is GET")
+
+      ;; Does the file or directory exist?
+      (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
+        (u:log-it-pairs :warn :details "Path not found"
+          :path path :abs-path abs-path :user user)
+        (setf (h:return-code*) h:+http-not-found+)
+        (return-from files-handler "Not Found"))
+      (u:log-it :debug "File or directory exists ~a" abs-path)
+
+      ;; Does the user have access to the path?
+      (unless (has-read-access user path-only)
+        (u:log-it-pairs :info
+          :details "Access denied" :path path :path-only path-only :user user)
+        (setf (h:return-code h:*reply*) h:+http-forbidden+)
+        (return-from files-handler "Forbidden"))
       (u:log-it-pairs :info
-        :details "Authorization failed"
-        :old-user user
-        :new-user *guest-username*)
-      (setf user *guest-username*))
+        :details "Access granted" :user user :path path-only)
 
-    ;; Is the method GET?
-    (unless (eql method :get)
-      (u:log-it-pairs :warn
-        :details "Method not allowed"
-        :user user :method method :path path)
-      (setf (h:return-code*) h:+http-method-not-allowed+)
-      (return-from files-handler "Method Not Allowed"))
-    (u:log-it :debug "Method is GET")
-
-    ;; Does the file or directory exist?
-    (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
-      (u:log-it-pairs :warn :details "Path not found"
-        :path path :abs-path abs-path :user user)
-      (setf (h:return-code*) h:+http-not-found+)
-      (return-from files-handler "Not Found"))
-    (u:log-it :debug "File or directory exists ~a" abs-path)
-
-    ;; Does the user have access to the path?
-    (unless (has-read-access user path-only)
-      (u:log-it-pairs :info
-        :details "Access denied" :path path :path-only path-only :user user)
-      (setf (h:return-code h:*reply*) h:+http-forbidden+)
-      (return-from files-handler "Forbidden"))
-    (u:log-it-pairs :info
-      :details "Access granted" :user user :path path-only)
-
-    ;; Access OK
-    (if (eql (u:path-type abs-path) :directory)
-      (progn
-        (u:log-it :debug "~a is a directory" path)
-        (render-directory-listing user path abs-path))
-      (progn
-        (u:log-it :debug "~a is a file" path)
-        (h:handle-static-file abs-path)))))
+      ;; Access OK
+      (if (eql (u:path-type abs-path) :directory)
+        (progn
+          (u:log-it :debug "~a is a directory" path)
+          (render-directory-listing user path abs-path))
+        (progn
+          (u:log-it :debug "~a is a file" path)
+          (h:handle-static-file abs-path))))))
 
 (defun render-user-list (page page-size)
-  (loop
-    with users = (a:list-users *rbac* page page-size)
-    for user in users
-    for username = (getf user :username)
-    for email = (getf user :email)
-    for created = (getf user :created-at)
-    for last-login = (getf user :last-login)
-    for roles = (db-list-roles username)
-    collect
+  (let ((headers (list "User" "Email" "Created" "Last Login" "Roles" ""))
+         (rows (loop
+                 with users = (a:list-users *rbac* page page-size)
+                 for user in users
+                 for username = (getf user :username)
+                 for email = (getf user :email)
+                 for created = (readable-timestamp (getf user :created-at))
+                 for last-login = (readable-timestamp (getf user :last-login))
+                 for roles = (db-list-roles username)
+                 for checkbox = (input-checkbox "usernames" "" :value username
+                                  :disabled 
+                                  (member username '("admin" "guest" "system") 
+                                    :test 'equal))
+                 collect (list username email created last-login 
+                           (format nil "~{~a~^, ~}" roles) checkbox))))
+    (input-form "delete-users-form" "delete-users-form" "/delete-users" "post"
+      (s:with-html-string
+        (:raw (render-table headers rows))
+        (:raw (input-submit-button "Delete Users"))))))
+
+(defun render-table (headers rows &key (class "standard-table"))
+  (unless (and (listp headers) (listp rows))
+    (error "HEADERS and ROWS should be lists"))
+  (when (and rows (not (listp (car rows))))
+    (error "ROWS should be a list of lists"))
+  (unless (every (lambda (row) (= (length row) (length headers))) rows)
+    (error "Each row in ROWS must have the same length as HEADERS"))
+  (let ((header-row (loop for header in headers
+                      collect (s:with-html-string (:th header))
+                      into header-html
+                      finally (return 
+                                (s:with-html-string
+                                  (:tr (:raw (join-html header-html)))))))
+         (rows (loop for row in rows
+                 collect (loop for value in row 
+                           collect (s:with-html-string 
+                                     (:td (:raw (if (stringp value)
+                                                  value
+                                                  (format nil "~a" value)))))
+                           into row-html
+                           finally (return 
+                                     (s:with-html-string
+                                       (:tr (:raw (join-html row-html))))))
+                 into rows-html
+                 finally (return (join-html rows-html)))))
     (s:with-html-string
-      (:tr
-        (:td username)
-        (:td email)
-        (:td (readable-timestamp created))
-        (:td (readable-timestamp last-login))
-        (:td (format nil "~{~a~^, ~}" roles))))
-    into rows
-    finally
-    (return
-      (let* ((blank-rows (when (and (< (length users) page-size) (> page 1))
-                           (loop for a from (length users) to page-size collect
-                             (s:with-html-string
-                               (:tr (:td :colspan "5" (:raw "&nbsp;")))))))
-              (all-rows (append rows blank-rows)))
-        (s:with-html-string
-          (:table
-            (:thead
-              (:tr
-                (:th "User")
-                (:th "Email")
-                (:th "Created")
-                (:th "Last Login")
-                (:th "Roles")))
-            (:tbody
-              (:raw (format nil "~{~a~%~}" all-rows)))))))))
+      (:table :class class
+        (:thead (:raw header-row))
+        (:tbody (:raw rows))))))
+
+(defun input-hidden (name value)
+  (s:with-html-string
+    (:input :type "hidden" :name name :value value)))
 
 (defun input-text (name label required &optional password)
   (s:with-html-string
@@ -686,18 +758,23 @@ file name and returns the path to the file with a trailing slash."
         :name name
         :required required))))
 
-(defun input-checkbox-list (name label values)
-  (let ((checkboxes (loop for value in values
-                      for checkbox = (s:with-html-string
-                                       (:div :class "checkbox"
-                                         (:label
-                                           (:input
-                                             :type "checkbox"
-                                             :name name
-                                             :value value)
-                                           value)))
+(defun input-checkbox (name display &key checked value disabled)
+  (s:with-html-string
+    (:div :class "checkbox"
+      (:label
+        (:input :type "checkbox" :name name :checked checked :value value
+          :disabled disabled)
+        display))))
+
+(defun input-checkbox-list (name label values &key checked-states)
+  (let ((checkboxes (loop with states = (or checked-states 
+                                          (mapcar (constantly nil) values))
+                      for value in values
+                      for checked in states
+                      for checkbox = (input-checkbox name value
+                                       :checked checked :value value)
                       collect checkbox into html
-                      finally (return (format nil "~{~a~%~}" html)))))
+                      finally (return (join-html html)))))
     (s:with-html-string
       (:div :class "form-group"
         (:label label)
@@ -707,11 +784,16 @@ file name and returns the path to the file with a trailing slash."
 (defun input-form (id class action method &rest fields)
   (s:with-html-string
     (:form :id id :class class :action action :method method
-      (:raw (format nil "~{~a~%~}" fields)))))
+      (:raw (join-html fields)))))
 
-(defun submit-button (display)
+(defun input-submit-button (display &key name value (class "submit-button"))
   (s:with-html-string
-    (:button :type "submit" :class "submit-button" display)))
+    (:div :class "button-container"
+      (:button :type "submit"
+        :class class
+        :name name
+        :value value
+        display))))
 
 (defun render-new-user-form ()
   (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
@@ -722,7 +804,7 @@ file name and returns the path to the file with a trailing slash."
               (input-text "password" "Password:" t t)
               (input-text "password-verification" "Password Verification" t t)
               (input-checkbox-list "roles" "Roles:" roles)
-              (submit-button "Create"))))))
+              (input-submit-button "Create"))))))
 
 (defun error-page (origin user error-description &rest params)
   (let* ((err-desc (apply #'format
@@ -784,6 +866,114 @@ file name and returns the path to the file with a trailing slash."
       ;; There was a specific problem when adding the user
       (error (e)
         (error-page "ADD User" user "Failed to add user ~a. ~a" username e)))))
+
+(h:define-easy-handler (confirm-handler :uri "/confirm")
+  (source target)
+  (multiple-value-bind (user allowed)
+    (session-user '("admin"))
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (u:log-it-pairs :error :detail "confirm-handler"
+        :status "user not allowed"
+        :user user
+        :source source
+        :target target))
+    (let ((title (h:session-value :confirmation-title))
+           (description (h:session-value :confirmation-description))
+           (form-action (add-to-url-query target :source source)))
+      (u:log-it-pairs :debug :detail "confirm-handler"
+        :status "Creating confirmation page"
+        :title title
+        :description description
+        :form-action form-action)
+      (page
+        (s:with-html-string
+          (:div :class "confirmation"
+            (:raw (join-html 
+                    (list
+                      description
+                      (input-form
+                        "confirmation-form" 
+                        "confirmation-form"
+                        form-action
+                        "get"
+                        (input-hidden "source" source)
+                        (input-hidden "target" target)
+                        (input-submit-button "Cancel"
+                          :class "cancel-button"
+                          :name "action"
+                          :value "cancel")
+                        (input-submit-button "Confirm"
+                          :class "confirm-button"
+                          :name "action"
+                          :value "confirm")))))))
+        :subtitle title
+        :user user))))
+
+(defun session-user (required-roles)
+  (let* ((token (h:session-value :jwt-token))
+          (user (when token (validate-jwt token)))
+          (roles (when user 
+                   (a:list-user-role-names *rbac* user :page-size 100)))
+          (union (when (some 
+                         (lambda (r) (member r required-roles :test 'equal))
+                         roles)
+                   t))
+          (allowed (when union t)))
+    (u:log-it-pairs :debug :detail "session-user"
+      :token token
+      :required-roles (map 'vector 'identity required-roles)
+      :roles (map 'vector 'identity roles)
+      :allowed allowed)
+    (values user allowed)))
+
+(h:define-easy-handler (delete-users-do-handler :uri "/delete-users-do")
+  (action source)
+  (multiple-value-bind (user allowed)
+    (session-user '("admin"))
+    (u:log-it-pairs :debug :detail "delete-user-do-handler"
+      :source source
+      :user user
+      :allowed allowed)
+    (if (and user allowed (equal action "confirm"))
+        (loop with users = (h:session-value :confirmation-data)
+          for user in users do
+          (a:d-remove-user *rbac* user)
+          finally (h:redirect source :protocol :https))
+      (h:redirect source :protocol :https))))
+
+(h:define-easy-handler (delete-users-handler :uri "/delete-users"
+                         :default-request-type :post)
+  ((usernames :parameter-type '(list string)))
+  (multiple-value-bind (user allowed)
+    (session-user '("admin"))
+    (u:log-it-pairs :debug 
+      :detail "delete-users-handler"
+      :user user
+      :allowed allowed
+      :usernames (map 'vector 'identity usernames))
+
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from delete-users-handler "Forbidden"))
+
+    (setf
+      (h:session-value :confirmation-title)
+      "Delete Users"
+      (h:session-value :confirmation-description)
+      (s:with-html-string
+        (:div :class "confirmation-description"
+          (:p "Please confirm that you want to delete the following users:")
+          (:ul 
+            (:raw (loop for username in usernames collect
+                    (s:with-html-string (:li username)) into html
+                    finally (return (join-html html)))))))
+      (h:session-value :confirmation-data) usernames)
+
+    (h:redirect (add-to-url-query "/confirm"
+                  :source "/list-users"
+                  :target "/delete-users-do")
+      :protocol :https)))
 
 (defun render-pager (url current-page page-size element-count
                       &optional (link-count 5))

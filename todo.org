@@ -34,7 +34,7 @@
     - [ ] Having role(s)
   - [X] Max role column width
   - [X] Add a user
-  - [ ] Remove a user
+  - [X] Remove one or more users
   - [ ] Self-register
 - [ ] Roles
   - [ ] List roles
@@ -51,3 +51,4 @@
   - [ ] Upload a file
   - [ ] Delete a file
 - [ ] Add tests
+- [X] Make forms easy to build
