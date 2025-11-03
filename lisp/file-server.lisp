@@ -315,7 +315,9 @@ file name and returns the path to the file with a trailing slash."
         (:ul :class "nav-menu"
           (:li (:a :href "/files" "files"))
           (when is-admin
-            (:li (:a :href "/list-users" "list users")))
+            (list
+              (:li (:a :href "/list-users" "list users"))
+              (:li (:a :href "/list-roles" "list roles"))))
           (if user
             (:li (:a :href "/logout"
                    (:img :src "/image?name=user.png")
@@ -638,7 +640,7 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
-  (multiple-value-bind (user allowed)
+  (multiple-value-bind (user allowed required-roles)
     (session-user '("guest" "logged-in"))
     (let* ((abs-path (u:join-paths *document-root* path))
             (path-only (clean-path path))
@@ -647,6 +649,7 @@ file name and returns the path to the file with a trailing slash."
         :details "files-handler"
         :user user
         :allowed allowed
+        :required-roles (map 'vector 'identity required-roles)
         :path path
         :abs-path abs-path)
 
@@ -748,7 +751,7 @@ file name and returns the path to the file with a trailing slash."
   (s:with-html-string
     (:input :type "hidden" :name name :value value)))
 
-(defun input-text (name label required &optional password)
+(defun input-text (name label &optional required password)
   (s:with-html-string
     (:div :class "form-group"
       (:label :for name label)
@@ -869,15 +872,24 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
-  (multiple-value-bind (user allowed)
-    (session-user '("admin"))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user '("logged-in"))
+    (u:log-it-pairs :debug :detail "confirm-handler"
+      :source source
+      :target target
+      :user user
+      :allowed allowed
+      :required-roles (map 'vector 'identity required-roles))
     (unless allowed
-      (setf (h:return-code*) h:+http-forbidden+)
       (u:log-it-pairs :error :detail "confirm-handler"
-        :status "user not allowed"
+        :status "Not authorized"
         :user user
+        :allowed allowed
+        :required-roles (map 'vector 'identity required-roles)
         :source source
-        :target target))
+        :target target)
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from confirm-handler "Forbidden"))
     (let ((title (h:session-value :confirmation-title))
            (description (h:session-value :confirmation-description))
            (form-action (add-to-url-query target :source source)))
@@ -925,32 +937,61 @@ file name and returns the path to the file with a trailing slash."
       :required-roles (map 'vector 'identity required-roles)
       :roles (map 'vector 'identity roles)
       :allowed allowed)
-    (values user allowed)))
+    (values user allowed required-roles)))
 
-(h:define-easy-handler (delete-users-do-handler :uri "/delete-users-do")
-  (action source)
-  (multiple-value-bind (user allowed)
+(h:define-easy-handler (list-users-handler :uri "/list-users")
+  ((page :parameter-type 'integer :init-form 1)
+    (page-size :parameter-type 'integer :init-form 20))
+  (multiple-value-bind (user allowed required-roles)
     (session-user '("admin"))
-    (u:log-it-pairs :debug :detail "delete-user-do-handler"
-      :source source
+    (u:log-it-pairs :debug :detail "list-users-handler"
       :user user
-      :allowed allowed)
-    (if (and user allowed (equal action "confirm"))
-        (loop with users = (h:session-value :confirmation-data)
-          for user in users do
-          (a:d-remove-user *rbac* user)
-          finally (h:redirect source :protocol :https))
-      (h:redirect source :protocol :https))))
+      :allowed allowed
+      :required-roles (map 'vector 'identity required-roles)
+      :page page
+      :page-size page-size)
+
+    ;; Is user authorized?
+    (unless allowed
+      (u:log-it-pairs :info
+        :details "Authorization failed"
+        :user user
+        :allowed allowed
+        :required-roles (map 'vector 'identity required-roles)
+        :error (format nil "Only ~a user is allowed" *root-username*)
+        (h:redirect "/files" :protocol :https)))
+
+    ;; Is the method GET?
+    (unless (eql (h:request-method*) :get)
+      (u:log-it-pairs 
+        :warn
+        :detail "list-users-handler"
+        :status "HTTP method not supported"
+        :user user
+        :method (h:request-method*))
+      (setf (h:return-code*) h:+http-method-not-allowed+)
+      (return-from list-users-handler "Method Not Allowed"))
+
+    (page
+      (s:with-html-string
+        (:div :class "user-list"
+          (:raw (render-user-list page page-size))
+          (:raw (render-pager "/list-users"
+                  page page-size (a:list-users-count *rbac*)))
+          (:raw (render-new-user-form))))
+      :user user
+      :subtitle "List Users")))
 
 (h:define-easy-handler (delete-users-handler :uri "/delete-users"
                          :default-request-type :post)
   ((usernames :parameter-type '(list string)))
-  (multiple-value-bind (user allowed)
+  (multiple-value-bind (user allowed required-roles)
     (session-user '("admin"))
     (u:log-it-pairs :debug 
       :detail "delete-users-handler"
       :user user
       :allowed allowed
+      :required-roles (map 'vector 'identity required-roles)
       :usernames (map 'vector 'identity usernames))
 
     (unless allowed
@@ -974,6 +1015,90 @@ file name and returns the path to the file with a trailing slash."
                   :source "/list-users"
                   :target "/delete-users-do")
       :protocol :https)))
+
+(h:define-easy-handler (delete-users-do-handler :uri "/delete-users-do")
+  (action source)
+  (multiple-value-bind (user allowed required-roles)
+    (session-user '("admin"))
+    (u:log-it-pairs :debug :detail "delete-user-do-handler"
+      :source source
+      :user user
+      :allowed allowed
+      :required-roles (map 'vector 'identity required-roles))
+    (if (and user allowed (equal action "confirm"))
+        (loop with users = (h:session-value :confirmation-data)
+          for user in users do
+          (a:d-remove-user *rbac* user)
+          finally (h:redirect source :protocol :https))
+      (h:redirect source :protocol :https))))
+
+(h:define-easy-handler (list-roles-handler :uri "/list-roles")
+  ((page :parameter-type 'integer :init-form 1)
+    (page-size :parameter-type 'integer :init-form 20))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user '("admin"))
+    (u:log-it-pairs :debug :detail "list-roles-handler"
+      :user user
+      :allowed allowed
+      :required-roles (map 'vector 'identity required-roles)
+      :page page
+      :page-size page-size)
+
+    ;; User authorized?
+    (unless allowed
+      (u:log-it-pairs :info
+        :detail "list-roles-handler"
+        :user user
+        :allowed allowed
+        :required-roles (map 'vector 'identity required-roles)
+        :status "Authorization failed"))
+    
+    ;; Is the method GET?
+    (unless (eql (h:request-method*) :get)
+      (u:log-it-pairs 
+        :warn
+        :detail "list-roles-handler"
+        :status "HTTP method not supported"
+        :user user
+        :method (h:request-method*))
+      (setf (h:return-code*) h:+http-method-not-allowed+)
+      (return-from list-roles-handler "Method Not Allowed"))
+
+    (page
+      (s:with-html-string
+        (:div :class "role-list"
+          (:raw (render-role-list page page-size))
+          (:raw (render-pager "/list-roles"
+                  page page-size (a:list-roles-regular-count *rbac*)))
+          (:raw (render-new-role-form))))
+      :user user
+      :subtitle "List Roles")))
+
+(defun render-role-list (page page-size)
+  (let ((headers (list "Role" "Description" "Created" "User Count" ""))
+         (rows (loop
+                 with roles = (a:list-roles-regular *rbac* page page-size)
+                 for role in roles
+                 for role-name = (getf role :role-name)
+                 for description = (getf role :role-description)
+                 for created = (readable-timestamp (getf role :created-at))
+                 for user-count = (a:list-role-users-count *rbac* role-name)
+                 for checkbox = (input-checkbox "roles" "" :value role-name
+                                  :disabled
+                                  (member role '("admin")))
+                 collect 
+                 (list role-name description created user-count checkbox))))
+    (input-form "delete-roles-form" "delete-roles-form" "/delete-roles" "post"
+      (s:with-html-string
+        (:raw (render-table headers rows))
+        (:raw (input-submit-button "Delete Roles"))))))
+
+(defun render-new-role-form ()
+  (s:with-html-string
+    (:raw (input-form "add-role-form" "add-role-form" "/add-role" "post"
+            (input-text "role" "Role:" t)
+            (input-text "description" "Description:" t)
+            (input-submit-button "Create")))))
 
 (defun render-pager (url current-page page-size element-count
                       &optional (link-count 5))
@@ -1023,43 +1148,6 @@ file name and returns the path to the file with a trailing slash."
                     (:span :class "title" "Page: ")
                     (:span :class "pages" (:raw (format nil "~{~a~}" pager)))))
                 ""))))
-
-(h:define-easy-handler (list-users-handler :uri "/list-users")
-  ((page :parameter-type 'integer :init-form 1)
-    (page-size :parameter-type 'integer :init-form 20))
-  (let* ((method (h:request-method*))
-          (token (h:session-value :jwt-token))
-          (user (when token (validate-jwt token))))
-
-    (u:log-it-pairs :debug :details "Handling /list-users"
-      :token token :user user :method method
-      :page page :page-size page-size)
-
-    ;; Is user authorized?
-    (unless (equal user *root-username*)
-      (u:log-it-pairs :info
-        :details "Authorization failed"
-        :user user
-        :error (format nil "Only ~a user is allowed" *root-username*)
-        (h:redirect "/files" :protocol :https)))
-
-    ;; Is the method GET?
-    (unless (eql method :get)
-      (u:log-it-pairs :warn
-        :details "Method not allowed"
-        :user user :method method)
-      (setf (h:return-code*) h:+http-method-not-allowed+)
-      (return-from list-users-handler "Method Not Allowed"))
-
-    (page
-      (s:with-html-string
-        (:div :class "user-list"
-          (:raw (render-user-list page page-size))
-          (:raw (render-pager "/list-users"
-                  page page-size (a:list-users-count *rbac*)))
-          (:raw (render-new-user-form))))
-      :user user
-      :subtitle "List Users")))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
