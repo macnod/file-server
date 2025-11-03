@@ -559,7 +559,7 @@ file name and returns the path to the file with a trailing slash."
                ("a.active::after" :width "70%")
                (img :width "18px" :height "18px" :margin-right "4px"))))
 
-         (.user-list
+         ((:or .user-list .role-list)
            :width "100%"
            :align-items "center"
            (table
@@ -577,7 +577,7 @@ file name and returns the path to the file with a trailing slash."
              :align-items "center"
              :gap "0.5rem"
              :font-size "0.95rem")
-           (.add-user
+           ((:or .add-user .add-role)
              :display "grid"
              :align-items "start"
              :margin-top "1rem"
@@ -602,7 +602,7 @@ file name and returns the path to the file with a trailing slash."
                (.submit-button
                  :margin-top "1rem"))))
 
-         (.delete-users-form 
+         ((:or .delete-users-form .delete-roles-form)
            :width "100%"
            (.button-container
              :display "flex"
@@ -868,7 +868,7 @@ file name and returns the path to the file with a trailing slash."
           :user user))
       ;; There was a specific problem when adding the user
       (error (e)
-        (error-page "ADD User" user "Failed to add user ~a. ~a" username e)))))
+        (error-page "Add User" user "Failed to add user ~a. ~a" username e)))))
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
@@ -1074,6 +1074,42 @@ file name and returns the path to the file with a trailing slash."
       :user user
       :subtitle "List Roles")))
 
+(h:define-easy-handler (add-role-handler :uri "/add-role")
+  ((role)
+    (description))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *root-role*))
+    (U:log-it-pairs :debug :detail "add-role-handler"
+      :user user
+      :allowed allowed
+      :required-roles required-roles
+      :role role
+      :description description)
+    (unless allowed
+      (u:log-it-pairs :error :detail "add-role-handler"
+        :user user
+        :allowed allowed
+        :required-roles required-roles)
+      (return-from add-role-handler
+        (page
+          (s:with-html-string
+            (:p "Error: Authorization failed"))
+          :subtitle "Error Adding Role"
+          :user user)))
+    (handler-case
+      ;; Add the role
+      (let ((role-id (a:d-add-role *rbac* role :description description)))
+        (unless role-id
+          (return-from add-role-handler
+            (error-page "Add Role" user "Failed to add role '~a'" role)))
+        (page
+          (s:with-html-string
+            (:p (format nil "Successfully added role '~a'" role)))
+          :subtitle "Added Role"
+          :user user))
+      (error (e)
+        (error-page "Add Role" user "Failed to add role '~a': ~a" role e)))))
+
 (defun render-role-list (page page-size)
   (let ((headers (list "Role" "Description" "Created" "User Count" ""))
          (rows (loop
@@ -1095,7 +1131,7 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-new-role-form ()
   (s:with-html-string
-    (:raw (input-form "add-role-form" "add-role-form" "/add-role" "post"
+    (:raw (input-form "add-role" "add-role" "/add-role" "post"
             (input-text "role" "Role:" t)
             (input-text "description" "Description:" t)
             (input-submit-button "Create")))))

@@ -52,3 +52,7 @@
   - [ ] Delete a file
 - [ ] Add tests
 - [X] Make forms easy to build
+- [ ] Misc
+  - [ ] Change all "admin" to *root-role*
+  - [ ] Create Authorization Failed page or fix error-page
+  - [ ] Fix CSS so that list-forms don't have to be listed individually
