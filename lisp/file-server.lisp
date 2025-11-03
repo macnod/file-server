@@ -692,12 +692,11 @@ file name and returns the path to the file with a trailing slash."
   ((usernames :parameter-type '(list string)))
   (multiple-value-bind (user allowed required-roles)
     (session-user '("admin"))
-    (u:log-it-pairs :debug 
-      :detail "delete-users-handler"
+    (u:log-it-pairs :debug :detail "delete-users-handler"
       :user user
       :allowed allowed
-      :required-roles (map 'vector 'identity required-roles)
-      :usernames (map 'vector 'identity usernames))
+      :required-roles required-roles
+      :users-to-delete usernames)
 
     (unless allowed
       (setf (h:return-code*) h:+http-forbidden+)
@@ -814,6 +813,52 @@ file name and returns the path to the file with a trailing slash."
           :user user))
       (error (e)
         (error-page "Add Role" user "Failed to add role '~a': ~a" role e)))))
+
+(h:define-easy-handler (delete-roles-handler :uri "/delete-roles"
+                       :default-request-type :post)
+  ((roles :parameter-type '(list string)))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *root-role*))
+    (u:log-it-pairs :debug :detail "delete-roles-handler"
+      :user user
+      :allowed allowed
+      :required-roles required-roles
+      :roles-to-delete roles)
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from delete-roles-handler "Forbidden"))
+    (setf
+      (h:session-value :confirmation-title)
+      "Delete Roles"
+      (h:session-value :confirmation-description)
+      (s:with-html-string
+        (:div :class "confirmation description"
+          (:p "Please confirm that you want to delete the following roles:")
+          (:ul
+            (:raw (loop for role in roles collect
+                    (s:with-html-string (:li role)) into html
+                    finally (return (join-html html)))))))
+      (h:session-value :confirmation-data) roles)
+    (h:redirect (add-to-url-query "/confirm"
+                  :source "/list-roles"
+                  :target "/delete-roles-do")
+      :protocol :https)))
+
+(h:define-easy-handler (delete-roles-do-handler :uri "/delete-roles-do")
+  (action source)
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *root-role*))
+    (u:log-it-pairs :debug :detail "delete-user-do-handler"
+      :source source
+      :user user
+      :allowed allowed
+      :required-roles required-roles)
+    (if (and user allowed (equal action "confirm"))
+      (loop with roles = (h:session-value :confirmation-data)
+        for role in roles do
+        (a:d-remove-role *rbac* role)
+        finally (h:redirect source :protocol :https))
+      (h:redirect source :protocol :https))))
 
 (defun render-role-list (page page-size)
   (let ((headers (list "Role" "Description" "Created" "User Count" ""))
