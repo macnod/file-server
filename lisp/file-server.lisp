@@ -40,6 +40,9 @@
 (defparameter *log-suppress-health*
   (u:getenv "LOG_SUPPRESS_HEALTH" :type :boolean :default t))
 
+;; Version
+(defparameter *version* (u:getenv "FILE_MANAGER_VERSION" :default "0.0"))
+
 ;; Other
 (defparameter *http-server* nil)
 (defparameter *swank-server* nil)
@@ -230,7 +233,9 @@ file name and returns the path to the file with a trailing slash."
             (:raw (menu user subtitle))
             (:div :class "title" title)
             (when subtitle (:h2 subtitle))
-            (:raw content)))))))
+            (:raw content)
+            (:div :class "status-line"
+              (:span "Version:" *version*))))))))
 
 (defun assemble-breadcrumbs (path)
   (loop

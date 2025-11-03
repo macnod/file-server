@@ -70,6 +70,13 @@
                ("a.active::after" :width "70%")
                (img :width "18px" :height "18px" :margin-right "4px"))))
 
+         (.status-line
+           :position "fixed"
+           :left "50%"
+           :bottom "20px"
+           :transform "translateX(-50%)"
+           :text-align "center")
+
          ((:or .user-list .role-list)
            :width "100%"
            :align-items "center"
