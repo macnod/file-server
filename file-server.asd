@@ -14,4 +14,6 @@
   :serial t
   :components ((:module "lisp"
                  :components ((:file "file-server-package")
+                               (:file "utils")
+                               (:file "css")
                                (:file "file-server")))))

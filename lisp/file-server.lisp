@@ -47,43 +47,6 @@
 (defparameter *rbac* nil)
 (defparameter *directory-syncing* t)
 
-(defun issue-jwt (user-id &optional (expiration-seconds 3600))
-  "Issue a JWT for a user."
-  (let* ((claims `(("sub" . ,user-id)
-                    ("exp" . ,(+ (u:universal-time-to-unix-time)
-                                expiration-seconds)))))
-    (j:encode :hs256 *jwt-secret* claims)))
-
-(defun validate-jwt (token)
-  "Validate a JWT token. Returns username if JWT token validates and user
-exists. Otherwise, logs a message and returns NIL."
-  (handler-case
-    (multiple-value-bind (claims headers sig)
-      (jose:decode :hs256 *jwt-secret* token)
-      (declare (ignore headers sig))
-      (when claims
-        (let ((user-id (cdr (assoc "sub" claims :test #'string=))))
-          (if user-id
-            (let ((user (handler-case
-                          (a:get-value *rbac* "users" "username"
-                            "id" user-id)
-                          (error (e)
-                            (u:log-it
-                              :warn
-                              "JWT has invalid user ID: ~a" e)
-                            nil))))
-              (if user
-                user
-                (progn
-                  (u:log-it :warn "User with ID ~a not found" user-id)
-                  nil)))
-            (progn
-              (u:log-it :warn "User ID not found in JWT")
-              nil)))))
-    (error (e)
-      (u:log-it :warn "Invalid JWT: ~a" e)
-      nil)))
-
 ;;
 ;; Custom Hunchentoot acceptor, for log-it logging
 ;;
@@ -129,48 +92,10 @@ exists. Otherwise, logs a message and returns NIL."
 ;; End custom Hunchentoot acceptor
 ;;
 
-(defun invert-hex-color (hex-string)
-  "Return the inverse color of the color represented by HEX-STRING. HEX-STRING
-is a 3-digit or 6-digit hexadecimal value that is optionally prefixed by the
-# symbol. Examples of valid values for HEX-STRING: #00FF33, #FFF, AA77CE, 123.
-This function returns the inverted value using the same number of hexadecimal
-digits provided in HEX-STRING, but always prefixes the return value with the
-# symbol. If HEX-STRING is invalid, this function raises an error."
-  (let* ((color (string-trim "# " hex-string))
-          (short (= (length color) 3))
-          (full-color (if short
-                        (loop for char across color
-                          append (list char char) into full
-                          finally (return (map 'string 'identity full)))
-                        color))
-          (components (loop for a from 0 to 4 by 2
-                        for b = (+ a 2)
-                        collect
-                        (parse-integer (subseq full-color a b) :radix 16)))
-          (inverse-components (loop for component in components
-                                collect (- 255 component)))
-          (hex-components (loop for value in inverse-components
-                            collect (format nil "~2,'0x" value)))
-          (final-components (if short
-                              (mapcar
-                                (lambda (c) (subseq c 0 1))
-                                hex-components)
-                              hex-components)))
-    (format nil "#~{~a~}" final-components)))
-
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
 directory's ID if it does and NIL otherwise."
   (a:get-id *rbac* "resources" directory))
-
-(defun readable-timestamp (universal-time)
-  "Return UNIVERSAL-TIME formatted as a timestamp that reads like this:
-YYYY-MM-DD HH:MM. If UNIVERSAL-TIME is NIL or :NULL, this function returns an
-empty string."
-  (if (and universal-time (not (eql universal-time :null)))
-    (let ((ts (u:timestamp-string :universal-time universal-time)))
-      (subseq (re:regex-replace "T" ts " ") 0 16))
-    ""))
 
 (defun db-user-id (user password)
   (a:d-login *rbac* user password))
@@ -203,23 +128,6 @@ empty string."
   (if directory-list
     (u:hash-string (format nil "~{~a~^|~}" directory-list))
     ""))
-
-(defun alist-to-hashtable (alist &key collect)
-  (if collect
-    (loop with h = (make-hash-table :test 'equal)
-      for (key . value) in alist
-      for existing = (gethash key h)
-      when (null existing) do
-      (let ((array (setf (gethash key h)
-                     (make-array 100 :adjustable t :fill-pointer 0))))
-        (vector-push-extend value array))
-      else do
-      (vector-push-extend value existing)
-      finally (return h))
-    (loop with h = (make-hash-table :test 'equal)
-      for (key . value) in alist
-      do (setf (gethash key h) value)
-      finally (return h))))
 
 (defun sync-directories ()
   "Ensures that directories that have been added to the file system are added to
@@ -285,27 +193,6 @@ file name and returns the path to the file with a trailing slash."
         (lambda (p)
           (subseq (namestring p) (1- (length *document-root*))))
         (uiop:subdirectories path)))))
-
-(defun join-html (list &optional new-lines)
-  (let ((format-string (if new-lines "~{~a~%~}" "~{~a~}")))
-    (format nil format-string list)))
-
-(defun add-to-url-query (path &rest pairs)
-  (when path
-    (loop
-      for key in pairs by #'cddr
-      for value in (cdr pairs) by #'cddr
-      for beg = path then url
-      for url = (if (and key value)
-                  (let ((format-string (cond
-                                         ((re:scan "[?]$" beg) "~a~(~a~)=~a")
-                                         ((re:scan "[?]" beg) "~a&~(~a~)=~a")
-                                         (t "~a?~(~a~)=~a"))))
-                    (format nil format-string
-                      beg key
-                      (h:url-encode (format nil "~a" value))))
-                  (or beg url))
-      finally (return url))))
 
 (defun menu (user subtitle)
   (let* ((roles (db-list-roles user t))
@@ -489,142 +376,6 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (js :uri "/js") ()
   (h:handle-static-file *file-server-js*))
 
-(defun generate-css ()
-  (let ((page-background-color "#fff")
-         (navbar-background-color "#eee")
-         (navbar-font-family "mono")
-         (nav-menu-color "#222")
-         (nav-menu-after-color "#ddd")
-         (nav-menu-hover-color "#0c0")
-         (nav-menu-active-color "#fff"))
-    (l:compile-and-write
-      `(.main-page
-         :background-color ,page-background-color
-         :max-width "60rem"
-         :margin "0 auto"
-         :padding "1rem"
-         (.title :font-family "mono" :font-size "2rem" :text-align "center")
-         (.listing
-           :list-style-type none
-           (a :display "flex" :align-items "center")
-           (img :margin-right "8px"))
-         (.breadcrumb
-           :display "flex"
-           :align-items "center"
-           :gap "8px"
-           (img :vertical-align "middle")
-           (div :display "inline" :font-size "24px"))
-         (.access-list :margin-left "32px" :display "flex"
-           (img :vertical-align "middle")
-           (span :margin-left "4px" :font-size "14px" :margin-top "-2px"))
-
-         (.navbar
-           :background-color ,navbar-background-color
-           :font-family ,navbar-font-family
-           :font-size "1.2rem"
-           :padding "0 2rem"
-           :box-shadow "0 2px 5px rgba(0, 0, 0, 0.1)"
-           (.nav-menu
-             :display "flex"
-             :list-style "none"
-             :justify-content "center"
-             (li :margin "0"
-               (a
-                 :display "block"
-                 :color ,nav-menu-color
-                 :text-decoration "none"
-                 :padding "1rem 1.5rem"
-                 :font-weight "500"
-                 :transition "all 0.3s ease"
-                 :position "relative"
-                 (.user :padding-right "0.2rem")
-                 (.login :font-size "0.75rem" :vertical-align "sub"))
-               ("a::after"
-                 :content ""
-                 :position "absolute"
-                 :width "0"
-                 :height "3px"
-                 :bottom "0"
-                 :left "50%"
-                 :background-color ,nav-menu-after-color
-                 :transition "all 0.3s ease"
-                 :transform "translateX(-50%)")
-               ("a:hover"
-                 :color ,nav-menu-hover-color
-                 :background-color "rgba(255, 255, 255, 0.1)")
-               ("a:hover::after" :width "70%")
-               ("a.active"
-                 :color ,nav-menu-active-color
-                 :font-weight "600")
-               ("a.active::after" :width "70%")
-               (img :width "18px" :height "18px" :margin-right "4px"))))
-
-         ((:or .user-list .role-list)
-           :width "100%"
-           :align-items "center"
-           (table
-             :width "100%"
-             :margin-bottom "1.5rem"
-             :border-spacing "0"
-             (th :text-align "left"
-               :border-bottom "1px solid black")
-             (td :text-align "left")
-             ("tr:nth-child(even)" :background-color "#f2f2f2"))
-           (.pager
-             :text-align "center"
-             :display "flex"
-             :justify-content "center"
-             :align-items "center"
-             :gap "0.5rem"
-             :font-size "0.95rem")
-           ((:or .add-user .add-role)
-             :display "grid"
-             :align-items "start"
-             :margin-top "1rem"
-             :padding "1.5rem"
-             :gap "0.5rem"
-             (.form-group
-               :display "flex"
-               :align-items "right"
-               (label
-                 :grid-column "1"
-                 :width "20rem"
-                 :text-align "right"
-                 :margin-right "0.5em")
-               (.textinput
-                 :grid-column "2"
-                 :width "50%"))
-             (.checkbox-group
-               :grid-column "2")
-             (.button-container
-               :grid-column "1 / -1"
-               :justify-self "center"
-               (.submit-button
-                 :margin-top "1rem"))))
-
-         ((:or .delete-users-form .delete-roles-form)
-           :width "100%"
-           (.button-container
-             :display "flex"
-             :justify-content "right"))
-
-         (.confirmation
-           :width "100%"
-           :display "flex"
-           :flex-direction "column"
-           (.confirmation-form
-             :display "flex"
-             (.button-container
-               :margin-right "1rem"
-               (.cancel-button
-                 :color "#f00"
-                 :font-size "1.1rem")
-               (.confirm-button
-                 :color "#0c0"
-                 :font-size "1.1rem"))))
-
-         (.bogus-class :end "end")))))
-
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
   (generate-css))
@@ -746,57 +497,6 @@ file name and returns the path to the file with a trailing slash."
       (:table :class class
         (:thead (:raw header-row))
         (:tbody (:raw rows))))))
-
-(defun input-hidden (name value)
-  (s:with-html-string
-    (:input :type "hidden" :name name :value value)))
-
-(defun input-text (name label &optional required password)
-  (s:with-html-string
-    (:div :class "form-group"
-      (:label :for name label)
-      (:input :type (if password "password" "text")
-        :id name 
-        :class "textinput"
-        :name name
-        :required required))))
-
-(defun input-checkbox (name display &key checked value disabled)
-  (s:with-html-string
-    (:div :class "checkbox"
-      (:label
-        (:input :type "checkbox" :name name :checked checked :value value
-          :disabled disabled)
-        display))))
-
-(defun input-checkbox-list (name label values &key checked-states)
-  (let ((checkboxes (loop with states = (or checked-states 
-                                          (mapcar (constantly nil) values))
-                      for value in values
-                      for checked in states
-                      for checkbox = (input-checkbox name value
-                                       :checked checked :value value)
-                      collect checkbox into html
-                      finally (return (join-html html)))))
-    (s:with-html-string
-      (:div :class "form-group"
-        (:label label)
-        (:div :class "checkbox-group"
-          (:raw checkboxes))))))
-
-(defun input-form (id class action method &rest fields)
-  (s:with-html-string
-    (:form :id id :class class :action action :method method
-      (:raw (join-html fields)))))
-
-(defun input-submit-button (display &key name value (class "submit-button"))
-  (s:with-html-string
-    (:div :class "button-container"
-      (:button :type "submit"
-        :class class
-        :name name
-        :value value
-        display))))
 
 (defun render-new-user-form ()
   (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
@@ -1135,55 +835,6 @@ file name and returns the path to the file with a trailing slash."
             (input-text "role" "Role:" t)
             (input-text "description" "Description:" t)
             (input-submit-button "Create")))))
-
-(defun render-pager (url current-page page-size element-count
-                      &optional (link-count 5))
-  (u:log-it-pairs :debug :detail "render-pager"
-    :url url
-    :current-page current-page
-    :page-size page-size
-    :element-count element-count
-    :link-count link-count)
-  (loop
-    with page-count = (ceiling element-count page-size)
-    with link-count-half = (floor link-count 2)
-    with first-page = (max 1 (- current-page link-count-half))
-    with last-page = (min page-count (+ current-page link-count-half))
-    with page-1 = (when (> first-page 1) 1)
-    with page-n = (when (< last-page page-count) page-count)
-    with check-current-page = (when (or
-                                      (< current-page 1)
-                                      (> current-page page-count))
-                                (error
-                                  (u:log-it-pairs :error
-                                    :details "CURRENT-PAGE is out of bounds"
-                                    :current-page curent-page
-                                    :first-page 1
-                                    :last-page page-count)))
-    with pages = (remove-if-not
-                   #'identity
-                   (append
-                     (list page-1)
-                     (loop for page from first-page to last-page collect page)
-                     (list page-n)))
-    for page in pages
-    for next-page in (cdr (append pages (list 0)))
-    for index from 1 to (length pages)
-    collect (s:with-html-string
-              (:a :class (if (= page current-page) "current-page" "page")
-                :href (add-to-url-query url "page" page)
-                (format nil "~d" page))
-              (:span :class "page-separator"
-                (if (> next-page (1+ page)) "..." " ")))
-    into pager
-    finally (return
-              (if (> (length pages) 1)
-                (s:with-html-string
-                  (:comment "Pager")
-                  (:div :class "pager"
-                    (:span :class "title" "Page: ")
-                    (:span :class "pages" (:raw (format nil "~{~a~}" pager)))))
-                ""))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
