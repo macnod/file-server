@@ -504,7 +504,7 @@ file name and returns the path to the file with a trailing slash."
         (:tbody (:raw rows))))))
 
 (defun render-new-user-form ()
-  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
+  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))`
     (s:with-html-string
       (:raw (input-form "add-user" "add-user" "/add-user" "post"
               (input-text "username" "Username:" t)
@@ -514,66 +514,108 @@ file name and returns the path to the file with a trailing slash."
               (input-checkbox-list "roles" "Roles:" roles)
               (input-submit-button "Create"))))))
 
-(defun error-page (origin user error-description &rest params)
+(defun error-page (action user error-description &rest params)
   (let* ((err-desc (apply #'format
                      (append (list nil error-description) params)))
-         (err (format nil "Error in ~a: ~a" origin err-desc)))
-    (u:log-it-pairs :details err :user (or user "(unknown)"))
+         (err (format nil "Error while ~a: ~a" action err-desc)))
+    (u:log-it-pairs :error :details err :user (or user "(unknown)"))
     (page (s:with-html-string (:p err)) :subtitle "Error" :user user)))
 
-(h:define-easy-handler (add-user-handler :uri "/add-user"
-                         :default-request-type :post)
-  ((username)
-    (email)
-    (password)
-    password-verification
-    (new-roles :real-name "roles" :parameter-type '(list string)))
-  (let* ((token (h:session-value :jwt-token))
-          (user (when token (validate-jwt token)))
-          (roles (when user (db-list-roles user))))
-
-    (u:log-it-pairs :error :detail "handle /add-user"
-      :username username
-      :email email
-      :passwords-match (equal password password-verification)
-      :new-roles (format nil "~{~a~^, ~}" new-roles)
+(defun success-page (user description &rest params)
+  (let* ((desc (apply #'format
+                 (append (list nil description) params))))
+    (u:log-it-pairs :debug :detail "success-page"
       :user user
-      :roles (format nil "~{~a~^, ~}" roles))
+      :description desc)
+    (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
-    ;; Is user authorized?
-    (unless (member *root-role* roles :test 'equal)
-      (u:log-it-pairs :info
-        :details "Authorization failed"
-        :user user)
-      (return-from add-user-handler
-        (page
-          (s:with-html-string
-            (:p "Error: Authorization for /add-user failed"))
-          :subtitle "Error Adding User"
-          :user user)))
+(defmacro define-add-handler
+  ((handler-name uri &key
+     (auth-roles (list *root-role*)))
+    http-parameters
+    (&rest validation-clauses)
+    add-function
+    element-name)
+  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :post)
+     ,http-parameters
+     (multiple-value-bind (user allowed required-roles)
+       (session-user ',auth-roles)
 
-    ;; Do the passwords match?
-    (unless (equal password password-verification)
-      (return-from add-user-handler
-        (error-page user "Add User" "Passwords don't match")))
-    (handler-case
-      ;; Add the user
-      (let ((user-id (a:d-add-user *rbac* username password
-                       :roles new-roles
-                       :email email)))
-        ;; Did the add fail?
-        (unless user-id
-          (return-from add-user-handler
-            (error-page "Add User" user "Failed to add user '~a'" username)))
-        ;; Yay! User added successfully
-        (page
-          (s:with-html-string
-            (:p (format nil "Successfully added user ~a" username)))
-          :subtitle "Added User"
-          :user user))
-      ;; There was a specific problem when adding the user
-      (error (e)
-        (error-page "Add User" user "Failed to add user ~a. ~a" username e)))))
+       (let* ((param-specs ',http-parameters)
+               (name-sym (cond
+                           ((null param-specs) 
+                             (error "http-parameters empty"))
+                           ((listp (first param-specs))
+                             (first (first param-specs)))
+                           (t (first param-specs))))
+               (name-param (h:parameter 
+                             (string-downcase (symbol-name name-sym))))
+               (action (format nil "adding ~a '~a'" ,element-name name-param))
+               (log-pairs (append
+                            (list
+                              :user user
+                              :allowed allowed
+                              :required-roles required-roles)
+                            (loop
+                              for spec in param-specs
+                              for var = (if (listp spec) (first spec) spec)
+                              for kw = (intern (string-upcase var) "KEYWORD")
+                              for val = (h:parameter (string-downcase var))
+                              unless (null val)
+                              append (list kw val)))))
+
+         ;; Log the request
+         (u:log-it-pairs :debug :detail (format nil "~(~a~)" ',handler-name)
+           (append
+             (list
+               :user user
+               :allowed allowed
+               :required-roles required-roles)
+             log-pairs))
+
+         ;; Authorization
+         (unless allowed
+           (u:log-it-pairs :error :detail (format nil "~a" ',handler-name)
+             :status "Authorization failed"
+             :user user
+             :allowed allowed
+             :required-roles required-roles)
+           (return-from ,handler-name
+             (error-page action user "Authorization failed")))
+         
+         ;; Validation
+         ,@(loop for (test msg) in validation-clauses
+             collect `(unless ,test
+                        (return-from ,handler-name
+                          (error-page action user ,msg))))
+         
+         ;; Add the element
+         (handler-case
+           (let ((id ,add-function))
+             (unless id
+               (u:log-it-pairs :error :detail (format nil "~(~a~)" ',handler-name)
+                 :status (format nil "Failed to add ~a '~a'" 
+                           ,element-name name-param))
+               (return-from ,handler-name
+                 (error-page action user
+                   "Failed to add ~a '~a'" ,element-name name-param)))
+             (success-page user "Success ~a." action))
+           (error (e)
+             (error-page action user e)))))))
+
+(define-add-handler (add-user-handler "/add-user")
+  (username email password password-verification
+    (new-roles :real-name "roles" :parameter-type '(list string)))
+  (((equal password password-verification) "Passwords don't match"))
+  (a:d-add-user *rbac* username password :roles new-roles :email email)
+  "user")
+
+(define-add-handler (add-role-handler "/add-role")
+  (role description (permissions :parameter-type '(list string)))
+  nil
+  (a:d-add-role *rbac* role :description description :permissions permissions)
+  "role")
+  
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
@@ -778,42 +820,6 @@ file name and returns the path to the file with a trailing slash."
       :user user
       :subtitle "List Roles")))
 
-(h:define-easy-handler (add-role-handler :uri "/add-role")
-  ((role)
-    (description))
-  (multiple-value-bind (user allowed required-roles)
-    (session-user (list *root-role*))
-    (U:log-it-pairs :debug :detail "add-role-handler"
-      :user user
-      :allowed allowed
-      :required-roles required-roles
-      :role role
-      :description description)
-    (unless allowed
-      (u:log-it-pairs :error :detail "add-role-handler"
-        :user user
-        :allowed allowed
-        :required-roles required-roles)
-      (return-from add-role-handler
-        (page
-          (s:with-html-string
-            (:p "Error: Authorization failed"))
-          :subtitle "Error Adding Role"
-          :user user)))
-    (handler-case
-      ;; Add the role
-      (let ((role-id (a:d-add-role *rbac* role :description description)))
-        (unless role-id
-          (return-from add-role-handler
-            (error-page "Add Role" user "Failed to add role '~a'" role)))
-        (page
-          (s:with-html-string
-            (:p (format nil "Successfully added role '~a'" role)))
-          :subtitle "Added Role"
-          :user user))
-      (error (e)
-        (error-page "Add Role" user "Failed to add role '~a': ~a" role e)))))
-
 (h:define-easy-handler (delete-roles-handler :uri "/delete-roles"
                        :default-request-type :post)
   ((roles :parameter-type '(list string)))
@@ -861,7 +867,7 @@ file name and returns the path to the file with a trailing slash."
       (h:redirect source :protocol :https))))
 
 (defun render-role-list (page page-size)
-  (let ((headers (list "Role" "Description" "Created" "User Count" ""))
+  (let ((headers (list "Role" "Description" "Created" "Users" "Permissions" ""))
          (rows (loop
                  with roles = (a:list-roles-regular *rbac* page page-size)
                  for role in roles
@@ -869,22 +875,26 @@ file name and returns the path to the file with a trailing slash."
                  for description = (getf role :role-description)
                  for created = (readable-timestamp (getf role :created-at))
                  for user-count = (a:list-role-users-count *rbac* role-name)
+                 for permissions = (a:list-role-permission-names *rbac* role-name)
                  for checkbox = (input-checkbox "roles" "" :value role-name
                                   :disabled
                                   (member role '("admin")))
                  collect 
-                 (list role-name description created user-count checkbox))))
+                 (list role-name description created user-count 
+                   (format nil "~{~a~^, ~}" permissions) checkbox))))
     (input-form "delete-roles-form" "delete-roles-form" "/delete-roles" "post"
       (s:with-html-string
         (:raw (render-table headers rows))
         (:raw (input-submit-button "Delete Roles"))))))
 
 (defun render-new-role-form ()
-  (s:with-html-string
-    (:raw (input-form "add-role" "add-role" "/add-role" "post"
-            (input-text "role" "Role:" t)
-            (input-text "description" "Description:" t)
-            (input-submit-button "Create")))))
+  (let ((permissions (a:list-permission-names *rbac* :page-size 1000)))
+    (s:with-html-string
+      (:raw (input-form "add-role" "add-role" "/add-role" "post"
+              (input-text "role" "Role:" t)
+              (input-text "description" "Description:" t)
+              (input-checkbox-list "permissions" "Permissions:" permissions)
+              (input-submit-button "Create"))))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
