@@ -615,7 +615,6 @@ file name and returns the path to the file with a trailing slash."
   (a:d-add-role *rbac* role :description description :permissions permissions)
   "role")
 
-
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
   (multiple-value-bind (user allowed required-roles)
@@ -685,48 +684,89 @@ file name and returns the path to the file with a trailing slash."
       :allowed allowed)
     (values user allowed required-roles)))
 
-(h:define-easy-handler (list-users-handler :uri "/list-users")
+(defmacro define-list-handler
+  ((handler-name uri &key (auth-roles (list "admin")))
+    http-parameters
+    render-list-function
+    list-count-function
+    render-new-form-function
+    list-name)
+  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :get)
+     ,http-parameters
+     (multiple-value-bind (user allowed required-roles)
+       (session-user ',auth-roles)
+
+       (let* ((param-specs ',http-parameters)
+               (action (format nil "listing ~a" ',list-name))
+               (log-pairs (append
+                            (list
+                              :user user
+                              :allowed allowed
+                              :required-roles required-roles)
+                            (loop
+                              for spec in param-specs
+                              for var = (if (listp spec) (first spec) spec)
+                              for kw = (intern (string-upcase var) "KEYWORD")
+                              for val = (h:parameter (string-downcase var))
+                              unless (null val)
+                              append (list kw val))))
+               (handler (format nil "~a" ',handler-name)))
+
+         ;; Log the request
+         (u:log-it-pairs :debug :detail handler
+           (append
+             (list
+               :user user
+               :allowed allowed
+               :required-roles required-roles)
+             log-pairs))
+
+         ;; Authorization
+         (unless allowed
+           (u:log-it-pairs :error :detail handler
+             :status "Authorization failed"
+             :user user
+             :allowed allowed
+             :required-roles required-roles)
+           (return-from ,handler-name
+             (error-page action user "Authorization failed")))
+
+         ;; Is the method GET?
+         (unless (eql (h:request-method*) :get)
+           (u:log-it-pairs :warn :detail handler
+             :status "HTTP method not supported"
+             :user user
+             :method (h:request-method*))
+           (return-from ,handler-name
+             (error-page action user "Method not allowed")))
+
+         ;; Assemble page
+         (page
+           (s:with-html-string
+             (:div :class (format nil "~a-list" ,list-name)
+               (:raw ,render-list-function)
+               (:raw (render-pager 
+                       (car (re:split "\\?" (h:request-uri*)))
+                       page page-size ,list-count-function))
+               (:raw ,render-new-form-function)))
+           :user user
+           :subtitle (format nil "List ~@(~a~)" ,list-name))))))
+
+(define-list-handler (list-roles-handler "/list-roles")
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
-  (multiple-value-bind (user allowed required-roles)
-    (session-user '("admin"))
-    (u:log-it-pairs :debug :detail "list-users-handler"
-      :user user
-      :allowed allowed
-      :required-roles (map 'vector 'identity required-roles)
-      :page page
-      :page-size page-size)
+  (render-role-list page page-size)
+  (a:list-roles-regular-count *rbac*)
+  (render-new-role-form)
+  "roles")
 
-    ;; Is user authorized?
-    (unless allowed
-      (u:log-it-pairs :info
-        :details "Authorization failed"
-        :user user
-        :allowed allowed
-        :required-roles (map 'vector 'identity required-roles)
-        :error (format nil "Only ~a user is allowed" *root-username*)
-        (h:redirect "/files" :protocol :https)))
-
-    ;; Is the method GET?
-    (unless (eql (h:request-method*) :get)
-      (u:log-it-pairs
-        :warn
-        :detail "list-users-handler"
-        :status "HTTP method not supported"
-        :user user
-        :method (h:request-method*))
-      (setf (h:return-code*) h:+http-method-not-allowed+)
-      (return-from list-users-handler "Method Not Allowed"))
-
-    (page
-      (s:with-html-string
-        (:div :class "user-list"
-          (:raw (render-user-list page page-size))
-          (:raw (render-pager "/list-users"
-                  page page-size (a:list-users-count *rbac*)))
-          (:raw (render-new-user-form))))
-      :user user
-      :subtitle "List Users")))
+(define-list-handler (list-users-handler "/list-users")
+  ((page :parameter-type 'integer :init-form 1)
+    (page-size :parameter-type 'integer :init-form 20))
+  (render-user-list page page-size)
+  (a:list-users-count *rbac*)
+  (render-new-user-form)
+  "users")
 
 (h:define-easy-handler (delete-users-handler :uri "/delete-users"
                          :default-request-type :post)
@@ -776,51 +816,6 @@ file name and returns the path to the file with a trailing slash."
           (a:d-remove-user *rbac* user)
           finally (h:redirect source :protocol :https))
       (h:redirect source :protocol :https))))
-
-(h:define-easy-handler (list-roles-handler :uri "/list-roles")
-  ((page :parameter-type 'integer :init-form 1)
-    (page-size :parameter-type 'integer :init-form 20))
-  (multiple-value-bind (user allowed required-roles)
-    (session-user '("admin"))
-    (u:log-it-pairs :debug :detail "list-roles-handler"
-      :user user
-      :allowed allowed
-      :required-roles (map 'vector 'identity required-roles)
-      :page page
-      :page-size page-size)
-
-    ;; User authorized?
-    (unless allowed
-      (u:log-it-pairs :info
-        :detail "list-roles-handler"
-        :user user
-        :allowed allowed
-        :required-roles (map 'vector 'identity required-roles)
-        :status "Authorization failed")
-      (setf (h:return-code*) h:+http-forbidden+)
-      (return-from list-roles-handler
-        (error-page "listing roles" user "Authorization failed")))
-
-    ;; Is the method GET?
-    (unless (eql (h:request-method*) :get)
-      (u:log-it-pairs
-        :warn
-        :detail "list-roles-handler"
-        :status "HTTP method not supported"
-        :user user
-        :method (h:request-method*))
-      (setf (h:return-code*) h:+http-method-not-allowed+)
-      (return-from list-roles-handler "Method Not Allowed"))
-
-    (page
-      (s:with-html-string
-        (:div :class "role-list"
-          (:raw (render-role-list page page-size))
-          (:raw (render-pager "/list-roles"
-                  page page-size (a:list-roles-regular-count *rbac*)))
-          (:raw (render-new-role-form))))
-      :user user
-      :subtitle "List Roles")))
 
 (h:define-easy-handler (delete-roles-handler :uri "/delete-roles"
                        :default-request-type :post)

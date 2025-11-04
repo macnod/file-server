@@ -77,7 +77,7 @@
            :transform "translateX(-50%)"
            :text-align "center")
 
-         ((:or .user-list .role-list)
+         ((:or .user-list .role-list .users-list .roles-list)
            :width "100%"
            :align-items "center"
            (table
