@@ -504,7 +504,7 @@ file name and returns the path to the file with a trailing slash."
         (:tbody (:raw rows))))))
 
 (defun render-new-user-form ()
-  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))`
+  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
     (s:with-html-string
       (:raw (input-form "add-user" "add-user" "/add-user" "post"
               (input-text "username" "Username:" t)
@@ -796,7 +796,10 @@ file name and returns the path to the file with a trailing slash."
         :user user
         :allowed allowed
         :required-roles (map 'vector 'identity required-roles)
-        :status "Authorization failed"))
+        :status "Authorization failed")
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from list-roles-handler
+        (error-page "listing roles" user "Authorization failed")))
 
     ;; Is the method GET?
     (unless (eql (h:request-method*) :get)
