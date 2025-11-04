@@ -550,31 +550,27 @@ file name and returns the path to the file with a trailing slash."
                (name-param (h:parameter
                              (string-downcase (symbol-name name-sym))))
                (action (format nil "adding ~a '~a'" ,element-name name-param))
+               (handler (format nil "~(~a~)" ',handler-name))
                (log-pairs (append
                             (list
+                              :debug
+                              :detail handler
                               :user user
                               :allowed allowed
                               :required-roles required-roles)
-                            (loop
-                              for spec in param-specs
-                              for var = (if (listp spec) (first spec) spec)
-                              for kw = (intern (string-upcase var) "KEYWORD")
-                              for val = (h:parameter (string-downcase var))
-                              unless (null val)
-                              append (list kw val)))))
+                            (list ,@(loop
+                                      for spec in http-parameters
+                                      for var = (if (listp spec) (first spec) spec)
+                                      for kw = (intern (string-upcase var) "KEYWORD")
+                                      collect kw
+                                      collect var)))))
 
          ;; Log the request
-         (u:log-it-pairs :debug :detail (format nil "~(~a~)" ',handler-name)
-           (append
-             (list
-               :user user
-               :allowed allowed
-               :required-roles required-roles)
-             log-pairs))
+         (apply #'u:log-it-pairs log-pairs)
 
          ;; Authorization
          (unless allowed
-           (u:log-it-pairs :error :detail (format nil "~a" ',handler-name)
+           (u:log-it-pairs :error :detail handler
              :status "Authorization failed"
              :user user
              :allowed allowed
@@ -590,9 +586,16 @@ file name and returns the path to the file with a trailing slash."
 
          ;; Add the element
          (handler-case
-           (let ((id ,add-function))
+           (let ((id (handler-case
+                       ,add-function
+                       (error (e)
+                         (u:log-it-pairs :error :detail handler
+                           :status (format nil "~a" e))
+                         (return-from ,handler-name
+                           (error-page action user
+                             (format nil "~a" e)))))))
              (unless id
-               (u:log-it-pairs :error :detail (format nil "~(~a~)" ',handler-name)
+               (u:log-it-pairs :error :detail handler
                  :status (format nil "Failed to add ~a '~a'"
                            ,element-name name-param))
                (return-from ,handler-name
@@ -696,30 +699,24 @@ file name and returns the path to the file with a trailing slash."
      (multiple-value-bind (user allowed required-roles)
        (session-user ',auth-roles)
 
-       (let* ((param-specs ',http-parameters)
-               (action (format nil "listing ~a" ',list-name))
+       (let* ((action (format nil "listing ~a" ',list-name))
+               (handler (format nil "~(~a~)" ',handler-name))
                (log-pairs (append
                             (list
+                              :debug
+                              :detail handler
                               :user user
                               :allowed allowed
                               :required-roles required-roles)
-                            (loop
-                              for spec in param-specs
-                              for var = (if (listp spec) (first spec) spec)
-                              for kw = (intern (string-upcase var) "KEYWORD")
-                              for val = (h:parameter (string-downcase var))
-                              unless (null val)
-                              append (list kw val))))
-               (handler (format nil "~a" ',handler-name)))
+                            (list ,@(loop
+                                      for spec in http-parameters
+                                      for var = (if (listp spec) (first spec) spec)
+                                      for kw = (intern (string-upcase var) "KEYWORD")
+                                      collect kw
+                                      collect var)))))
 
          ;; Log the request
-         (u:log-it-pairs :debug :detail handler
-           (append
-             (list
-               :user user
-               :allowed allowed
-               :required-roles required-roles)
-             log-pairs))
+         (apply #'u:log-it-pairs log-pairs)
 
          ;; Authorization
          (unless allowed
@@ -754,7 +751,7 @@ file name and returns the path to the file with a trailing slash."
 
 (define-list-handler (list-roles-handler "/list-roles")
   ((page :parameter-type 'integer :init-form 1)
-    (page-size :parameter-type 'integer :init-form 20))
+    (page-size :parameter-type 'integer :init-form 10))
   (render-role-list page page-size)
   (a:list-roles-regular-count *rbac*)
   (render-new-role-form)
@@ -875,7 +872,7 @@ file name and returns the path to the file with a trailing slash."
                  for permissions = (a:list-role-permission-names *rbac* role-name)
                  for checkbox = (input-checkbox "roles" "" :value role-name
                                   :disabled
-                                  (member role '("admin")))
+                                  (member role-name '("admin") :test 'equal))
                  collect
                  (list role-name description created user-count
                    (format nil "~{~a~^, ~}" permissions) checkbox))))

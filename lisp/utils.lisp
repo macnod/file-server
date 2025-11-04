@@ -201,12 +201,13 @@ empty string."
     with check-current-page = (when (or
                                       (< current-page 1)
                                       (> current-page page-count))
-                                (error
-                                  (u:log-it-pairs :error
-                                    :details "CURRENT-PAGE is out of bounds"
-                                    :current-page curent-page
-                                    :first-page 1
-                                    :last-page page-count)))
+                                (u:log-it-pairs :error
+                                  :detail "render-pager"
+                                  :status "current-page is out of bounds"
+                                  :current-page current-page
+                                  :first-page 1
+                                  :last-page page-count)
+                                (setf current-page first-page))
     with pages = (remove-if-not
                    #'identity
                    (append
