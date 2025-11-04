@@ -79,7 +79,7 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/file-server:0.96.0
+          image: macnod/file-server:0.97.0
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -96,7 +96,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: 0.96.0
+              value: 0.97.0
             # Database connection
             - name: DB_HOST
               value: "postgres-service"

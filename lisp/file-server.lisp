@@ -530,8 +530,7 @@ file name and returns the path to the file with a trailing slash."
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
 (defmacro define-add-handler
-  ((handler-name uri &key
-     (auth-roles (list *root-role*)))
+  ((handler-name uri &key (auth-roles (list "admin")))
     http-parameters
     (&rest validation-clauses)
     add-function
