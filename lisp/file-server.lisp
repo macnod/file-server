@@ -334,8 +334,8 @@ file name and returns the path to the file with a trailing slash."
   (username password error redirect)
   (setf (h:content-type*) "text/html")
   (u:log-it-pairs :debug
-    :details "login-handler" 
-    :username username 
+    :details "login-handler"
+    :username username
     :error error
     :redirect redirect)
   (when (zerop (length redirect))
@@ -463,10 +463,10 @@ file name and returns the path to the file with a trailing slash."
                  for last-login = (readable-timestamp (getf user :last-login))
                  for roles = (db-list-roles username)
                  for checkbox = (input-checkbox "usernames" "" :value username
-                                  :disabled 
-                                  (member username '("admin" "guest" "system") 
+                                  :disabled
+                                  (member username '("admin" "guest" "system")
                                     :test 'equal))
-                 collect (list username email created last-login 
+                 collect (list username email created last-login
                            (format nil "~{~a~^, ~}" roles) checkbox))))
     (input-form "delete-users-form" "delete-users-form" "/delete-users" "post"
       (s:with-html-string
@@ -483,17 +483,17 @@ file name and returns the path to the file with a trailing slash."
   (let ((header-row (loop for header in headers
                       collect (s:with-html-string (:th header))
                       into header-html
-                      finally (return 
+                      finally (return
                                 (s:with-html-string
                                   (:tr (:raw (join-html header-html)))))))
          (rows (loop for row in rows
-                 collect (loop for value in row 
-                           collect (s:with-html-string 
+                 collect (loop for value in row
+                           collect (s:with-html-string
                                      (:td (:raw (if (stringp value)
                                                   value
                                                   (format nil "~a" value)))))
                            into row-html
-                           finally (return 
+                           finally (return
                                      (s:with-html-string
                                        (:tr (:raw (join-html row-html))))))
                  into rows-html
@@ -543,12 +543,12 @@ file name and returns the path to the file with a trailing slash."
 
        (let* ((param-specs ',http-parameters)
                (name-sym (cond
-                           ((null param-specs) 
+                           ((null param-specs)
                              (error "http-parameters empty"))
                            ((listp (first param-specs))
                              (first (first param-specs)))
                            (t (first param-specs))))
-               (name-param (h:parameter 
+               (name-param (h:parameter
                              (string-downcase (symbol-name name-sym))))
                (action (format nil "adding ~a '~a'" ,element-name name-param))
                (log-pairs (append
@@ -582,19 +582,19 @@ file name and returns the path to the file with a trailing slash."
              :required-roles required-roles)
            (return-from ,handler-name
              (error-page action user "Authorization failed")))
-         
+
          ;; Validation
          ,@(loop for (test msg) in validation-clauses
              collect `(unless ,test
                         (return-from ,handler-name
                           (error-page action user ,msg))))
-         
+
          ;; Add the element
          (handler-case
            (let ((id ,add-function))
              (unless id
                (u:log-it-pairs :error :detail (format nil "~(~a~)" ',handler-name)
-                 :status (format nil "Failed to add ~a '~a'" 
+                 :status (format nil "Failed to add ~a '~a'"
                            ,element-name name-param))
                (return-from ,handler-name
                  (error-page action user
@@ -615,7 +615,7 @@ file name and returns the path to the file with a trailing slash."
   nil
   (a:d-add-role *rbac* role :description description :permissions permissions)
   "role")
-  
+
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
@@ -648,11 +648,11 @@ file name and returns the path to the file with a trailing slash."
       (page
         (s:with-html-string
           (:div :class "confirmation"
-            (:raw (join-html 
+            (:raw (join-html
                     (list
                       description
                       (input-form
-                        "confirmation-form" 
+                        "confirmation-form"
                         "confirmation-form"
                         form-action
                         "get"
@@ -672,9 +672,9 @@ file name and returns the path to the file with a trailing slash."
 (defun session-user (required-roles)
   (let* ((token (h:session-value :jwt-token))
           (user (when token (validate-jwt token)))
-          (roles (when user 
+          (roles (when user
                    (a:list-user-role-names *rbac* user :page-size 100)))
-          (union (when (some 
+          (union (when (some
                          (lambda (r) (member r required-roles :test 'equal))
                          roles)
                    t))
@@ -710,7 +710,7 @@ file name and returns the path to the file with a trailing slash."
 
     ;; Is the method GET?
     (unless (eql (h:request-method*) :get)
-      (u:log-it-pairs 
+      (u:log-it-pairs
         :warn
         :detail "list-users-handler"
         :status "HTTP method not supported"
@@ -751,7 +751,7 @@ file name and returns the path to the file with a trailing slash."
       (s:with-html-string
         (:div :class "confirmation-description"
           (:p "Please confirm that you want to delete the following users:")
-          (:ul 
+          (:ul
             (:raw (loop for username in usernames collect
                     (s:with-html-string (:li username)) into html
                     finally (return (join-html html)))))))
@@ -798,10 +798,10 @@ file name and returns the path to the file with a trailing slash."
         :allowed allowed
         :required-roles (map 'vector 'identity required-roles)
         :status "Authorization failed"))
-    
+
     ;; Is the method GET?
     (unless (eql (h:request-method*) :get)
-      (u:log-it-pairs 
+      (u:log-it-pairs
         :warn
         :detail "list-roles-handler"
         :status "HTTP method not supported"
@@ -879,8 +879,8 @@ file name and returns the path to the file with a trailing slash."
                  for checkbox = (input-checkbox "roles" "" :value role-name
                                   :disabled
                                   (member role '("admin")))
-                 collect 
-                 (list role-name description created user-count 
+                 collect
+                 (list role-name description created user-count
                    (format nil "~{~a~^, ~}" permissions) checkbox))))
     (input-form "delete-roles-form" "delete-roles-form" "/delete-roles" "post"
       (s:with-html-string

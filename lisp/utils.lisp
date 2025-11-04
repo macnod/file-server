@@ -2,7 +2,7 @@
 
 ;;
 ;; BEGIN JWT Token
-;; 
+;;
 
 (defun issue-jwt (user-id &optional (expiration-seconds 3600))
   "Issue a JWT for a user."
@@ -141,7 +141,7 @@ empty string."
     (:div :class "form-group"
       (:label :for name label)
       (:input :type (if password "password" "text")
-        :id name 
+        :id name
         :class "textinput"
         :name name
         :required required))))
@@ -155,7 +155,7 @@ empty string."
         display))))
 
 (defun input-checkbox-list (name label values &key checked-states)
-  (let ((checkboxes (loop with states = (or checked-states 
+  (let ((checkboxes (loop with states = (or checked-states
                                           (mapcar (constantly nil) values))
                       for value in values
                       for checked in states
@@ -235,4 +235,3 @@ empty string."
 ;;
 ;; END WEb/HTML
 ;;
-
