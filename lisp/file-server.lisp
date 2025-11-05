@@ -275,6 +275,10 @@ file name and returns the path to the file with a trailing slash."
         (append access-list-show (list additional))))
     access-list-show))
 
+;; (defun directory-roles (directory)
+;;   (handler-case
+;;     (a:list-resource-role-names
+
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
@@ -292,16 +296,21 @@ file name and returns the path to the file with a trailing slash."
               (:div (:raw crumbs)))
             (:div :class "access-list"
               (:img :src "/image?name=users.png" :width 16 :height 16)
-              (:span (format nil "~{~a~^, ~}" access-list)))
+              (:span (format nil "~{~a~^, ~}"
+                       (if (member "guest" access-list :test 'equal)
+                         (list "public")
+                         access-list))))
             ;; Directories
             (:ul :class "listing"
-              (mapcar
-                (lambda (d)
-                  (:li (:a :href (format nil "/files?path=~a" d)
-                         (:img :src "/image?name=folder.png"
-                           :width 24 :height 24)
-                         (u:leaf-directory-only d))))
-                subdirs))
+              (loop for dir in subdirs
+                for name = (u:leaf-directory-only dir)
+                ;; for roles = (format nil "~{~a~^, ~}" (directory-roles dir))
+                for href = (format nil "/files?path=~a" dir)
+                for image = "/image?name=folder.png"
+                collect
+                (:li 
+                  (:a :href href (:img :src image :width 24 :height 24) name)
+                  (:span "(roles)"))))
             ;; Files
             (:ul :class "listing"
               (mapcar
