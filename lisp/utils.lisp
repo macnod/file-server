@@ -146,6 +146,10 @@ empty string."
         :name name
         :required required))))
 
+(defun input-hidden (name value)
+  (s:with-html-string
+    (:input :type "hidden" :name name :value value)))
+
 (defun input-checkbox (name display &key checked value disabled)
   (s:with-html-string
     (:div :class "checkbox"

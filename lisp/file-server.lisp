@@ -13,9 +13,10 @@
 (defparameter *root-password* (u:getenv "ROOT_PASSWORD"
                                 :default "admin-password-1234"))
 (defparameter *root-role* "admin")
+(defparameter *user-role* "user")
 (defparameter *guest-username* "guest")
 (defparameter *guest-password* "guest-password-1234")
-(defparameter *guest-role* "guest")
+(defparameter *guest-role* "public")
 
 ;; JWT Secret
 (defparameter *jwt-secret*
@@ -106,9 +107,11 @@ directory's ID if it does and NIL otherwise."
 (defun db-list-roles (user &optional all-roles)
   (when user
     (handler-case
-      (if all-roles
-        (a:list-user-role-names *rbac* user :page-size 1000)
-        (a:list-user-role-names-regular *rbac* user :page-size 1000))
+      (remove-if
+        (lambda (r) (equal r *user-role*))
+        (if all-roles
+          (a:list-user-role-names *rbac* user :page-size 1000)
+          (a:list-user-role-names-regular *rbac* user :page-size 1000)))
       (error (e)
         (u:log-it-pairs :error
           :detail (format nil "Failed to retrieve roles for user '~a'" user)
@@ -255,15 +258,21 @@ file name and returns the path to the file with a trailing slash."
     into breadcrumbs
     finally (return (format nil "~{~a~^/~}" breadcrumbs))))
 
-(defun assemble-access-list (path)
+(defun directory-roles (path)
   (let* ((count-list 5)
           (count-total 20)
-          (access-list (a:list-resource-usernames
-                         *rbac* path nil :page-size count-total))
-          (count-actual (length access-list))
-          (access-list-show (if (<= (length access-list) count-list)
-                              access-list
-                              (subseq access-list 0 count-list)))
+          (raw-roles (a:list-resource-role-names *rbac* path))
+          (roles (if (member "public" raw-roles :test 'equal)
+                   (list "public")
+                   (mapcar
+                     (lambda (r) (re:regex-replace ":exclusive$" r ""))
+                     (remove-if
+                       (lambda (r) (member r '("admin" "system")))
+                       raw-roles))))
+          (count-actual (length roles))
+          (roles-show (if (<= (length roles) count-list)
+                        roles
+                        (subseq roles 0 count-list)))
           (additional (cond
                         ((<= count-actual count-list) nil)
                         ((< count-actual count-total)
@@ -271,46 +280,39 @@ file name and returns the path to the file with a trailing slash."
                             (- count-total count-actual)))
                         (t "and many more"))))
     (when additional
-      (setf access-list-show
-        (append access-list-show (list additional))))
-    access-list-show))
-
-;; (defun directory-roles (directory)
-;;   (handler-case
-;;     (a:list-resource-role-names
+      (setf roles-show
+        (append roles-show (list additional))))
+    roles-show))
 
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
          (subdirs (rdl-subdirectories user abs-path))
          (crumbs (assemble-breadcrumbs path))
-         (access-list (assemble-access-list path)))
+         (roles (directory-roles path)))
     (u:log-it-pairs :debug
       :details "List directories"
-      :files (map 'vector 'identity files)
-      :subdirectories (map 'vector 'identity subdirs)
-      :access-list (map 'vector 'identity access-list))
+      :files files
+      :subdirectories subdirs
+      :access-list roles)
     (page (s:with-html-string
             (:div :class "breadcrumb"
               (:img :src "/image?name=home.png" :width 24 :height 24)
               (:div (:raw crumbs)))
             (:div :class "access-list"
               (:img :src "/image?name=users.png" :width 16 :height 16)
-              (:span (format nil "~{~a~^, ~}"
-                       (if (member "guest" access-list :test 'equal)
-                         (list "public")
-                         access-list))))
+              (:span (format nil "~{~a~^, ~}" roles)))
             ;; Directories
             (:ul :class "listing"
               (loop for dir in subdirs
                 for name = (u:leaf-directory-only dir)
-                ;; for roles = (format nil "~{~a~^, ~}" (directory-roles dir))
+                for dir-roles = (format nil "~{~a~^, ~}" (directory-roles dir))
                 for href = (format nil "/files?path=~a" dir)
                 for image = "/image?name=folder.png"
                 collect
-                (:li 
+                (:li
                   (:a :href href (:img :src image :width 24 :height 24) name)
-                  (:span "(roles)"))))
+                  (:span dir-roles))))
             ;; Files
             (:ul :class "listing"
               (mapcar
@@ -320,7 +322,8 @@ file name and returns the path to the file with a trailing slash."
                          (:img :src "/image?name=file.png"
                            :width 24 :height 24)
                          (u:filename-only f))))
-                files)))
+                files))
+            (:raw (render-new-directory-form user path)))
       :user user
       :subtitle "Files")))
 
@@ -406,7 +409,7 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (files-handler :uri "/files") (path)
   (unless path (setf path "/"))
   (multiple-value-bind (user allowed required-roles)
-    (session-user '("guest" "logged-in"))
+    (session-user '("public" "logged-in"))
     (let* ((abs-path (u:join-paths *document-root* path))
             (path-only (clean-path path))
             (method (h:request-method*)))
@@ -473,7 +476,7 @@ file name and returns the path to the file with a trailing slash."
                  for roles = (db-list-roles username)
                  for checkbox = (input-checkbox "usernames" "" :value username
                                   :disabled
-                                  (member username '("admin" "guest" "system")
+                                  (member username '("admin" "public" "system")
                                     :test 'equal))
                  collect (list username email created last-login
                            (format nil "~{~a~^, ~}" roles) checkbox))))
@@ -512,16 +515,60 @@ file name and returns the path to the file with a trailing slash."
         (:thead (:raw header-row))
         (:tbody (:raw rows))))))
 
+(defun regular-roles ()
+  (remove-if
+    (lambda (role) (equal role *user-role*))
+    (a:list-role-names-regular *rbac* :page-size 1000)))
+
+(defun regular-user-roles (user)
+  (remove-if
+    (lambda (role) (equal role *user-role*))
+    (a:list-user-role-names-regular *rbac* user :page-size 1000)))
+
+(defun regular-resource-roles (resource)
+  (remove-if
+    (lambda (role) (equal role *user-role*))
+    (a:list-resource-role-names-regular *rbac* resource :page-size 1000)))
+
 (defun render-new-user-form ()
-  (let ((roles (a:list-role-names-regular *rbac* :page-size 1000)))
-    (s:with-html-string
-      (:raw (input-form "add-user" "add-user" "/add-user" "post"
-              (input-text "username" "Username:" t)
-              (input-text "email" "Email:" t)
-              (input-text "password" "Password:" t t)
-              (input-text "password-verification" "Password Verification" t t)
-              (input-checkbox-list "roles" "Roles:" roles)
-              (input-submit-button "Create"))))))
+  (let ((roles (regular-roles)))
+    (input-form "add-user" "add-user" "/add-user" "post"
+      (input-text "username" "Username:" t)
+      (input-text "email" "Email:" t)
+      (input-text "password" "Password:" t t)
+      (input-text "password-verification" "Password Verification" t t)
+      (input-checkbox-list "roles" "Roles:" roles)
+      (input-submit-button "Create"))))
+
+(defun admin-user-p (user)
+  (let ((user-roles (a:list-user-role-names *rbac* user :page-size 1000)))
+
+(defun render-new-directory-form (user parent)
+  (let* ((user-roles (a:list-user-role-names *rbac* user :page-size 1000))
+          (parent-roles (a:list-resource-role-names *rbac* parent
+                          :page-size 1000))
+          (role-options (remove-if
+                         (lambda (d)
+                           (member d (list *user-role* *root-role*)
+                             :test 'equal))
+                         (cons "public"
+                           (if (member *root-role* user-roles :test 'equal)
+                             (if (member *guest-role* parent-foles :test 'equal)
+                               (a:list-role-names-regular *rbac*
+                             (u:distinct-values
+                               (append
+                                 (a:list-user-role-names-regular *rbac*
+                                   user :page-size 1000)
+                                 (a:list-resource-role-names-regular *rbac*
+                                   parent :page-size 1000)))
+                           (a:list-user-role-names-regular *rbac* user
+                             :page-size 100))))))
+    (input-form "add-directory" "add-directory" "/add-directory" "post"
+      (input-text "directory" "Directory Name (no slashes):" t)
+      (input-checkbox-list "roles" "Roles: " role-options)
+      (input-hidden "user" user)
+      (input-hidden "parent" parent)
+      (input-submit-button "Create"))))
 
 (defun error-page (action user error-description &rest params)
   (let* ((err-desc (apply #'format
@@ -618,7 +665,9 @@ file name and returns the path to the file with a trailing slash."
   (username email password password-verification
     (new-roles :real-name "roles" :parameter-type '(list string)))
   (((equal password password-verification) "Passwords don't match"))
-  (a:d-add-user *rbac* username password :roles new-roles :email email)
+  (a:d-add-user *rbac* username password
+    :roles (cons *user-role* new-roles)
+    :email email)
   "user")
 
 (define-add-handler (add-role-handler "/add-role")
@@ -626,6 +675,35 @@ file name and returns the path to the file with a trailing slash."
   nil
   (a:d-add-role *rbac* role :description description :permissions permissions)
   "role")
+
+(define-add-handler (add-directory-handler "/add-directory" :auth-roles (list "user"))
+  (directory parent user
+    (new-roles :real-name "roles" :parameter-type '(list string)))
+  (((not (re:scan "/" directory)) "Directory has slashes")
+    ((or (equal parent "/") (re:scan "^/.+/$" parent))
+      "Parent directory must be absolute and end in a slash")
+    ((u:directory-exists-p (u:join-paths *document-root* parent))
+       "Parent directory not in file system")
+    ((not (member
+            (concatenate 'string parent directory "/")
+            (a:list-resource-names *rbac*)
+            :test 'equal))
+      "Directory already exists")
+    ((a:get-id *rbac* "users" user)
+      (format nil "User '~a' doesn't exist" user))
+    ((loop for role in new-roles always (a:get-id *rbac* "roles" role))
+      "One or more roles doesn't exist"))
+  (let* ((resource (concatenate 'string parent directory "/"))
+          (absolute-path (concatenate 'string
+                           (u:join-paths *document-root* resource) "/"))
+          (all-roles (cons (format nil "~a:exclusive" user) new-roles)))
+    (u:log-it-pairs :debug :detail "add-directory-handler"
+      :resource resource
+      :absolute-path absolute-path
+      :all-roles all-roles)
+    (ensure-directories-exist absolute-path)
+    (a:d-add-resource *rbac* resource :roles all-roles))
+  "directory")
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
@@ -751,7 +829,7 @@ file name and returns the path to the file with a trailing slash."
            (s:with-html-string
              (:div :class (format nil "~a-list" ,list-name)
                (:raw ,render-list-function)
-               (:raw (render-pager 
+               (:raw (render-pager
                        (car (re:split "\\?" (h:request-uri*)))
                        page page-size ,list-count-function))
                (:raw ,render-new-form-function)))
@@ -924,14 +1002,17 @@ file name and returns the path to the file with a trailing slash."
                  :username *db-username*
                  :password *db-password*
                  :resource-regex "^/([-_.a-zA-Z0-9 ]+/)*$"))
-  ;; Add root role if it doesn't exist
+  ;; Add root and user roles if they doesn't exist
   (unless (a:get-id *rbac* "roles" *root-role*)
     (a:d-add-role *rbac* *root-role*
       :description "The administrative role."))
+  (unless (a:get-id *rbac* "roles" *user-role*)
+    (a:d-add-role *rbac* *user-role*
+      :description "Every user except the guest user gets this role"))
   ;; Add root user if it doesn't exist
   (unless (a:get-id *rbac* "users" *root-username*)
     (a:d-add-user *rbac* *root-username* *root-password*
-      :roles (list *root-role*)))
+      :roles (list *user-role* *root-role*)))
   ;; Add guest role if it doesnt exist
   (unless (a:get-id *rbac* "roles" *guest-role*)
     (a:d-add-role *rbac* *guest-role*

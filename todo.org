@@ -15,7 +15,8 @@
   - [X] Improve appearance of user info
 - [X] Files Page
   - [X] Add a symbol in front of the breadcrumb
-  - [X] Add a list of users with access under the breadcrumb
+  - [X] Add a list of roles under the breadcrumb
+  - [X] Add a list of roles next to each directory entry
 - [-] Users
   - [X] List users
   - [X] Page user list
@@ -62,3 +63,5 @@
 - [X] Create macro for listing things and put it into service
 - [X] Create macro for creating new things and put it into service
 - [X] Add paging
+- [X] Change 'guest' to 'public'
+- [ ] In Dockerfile, get file-server code from local instead of GitHub

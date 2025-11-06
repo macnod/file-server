@@ -17,8 +17,19 @@
          (.title :font-family "mono" :font-size "2rem" :text-align "center")
          (.listing
            :list-style-type none
-           (a :display "flex" :align-items "center")
-           (img :margin-right "8px"))
+           :display "block"
+           :width "100%"
+           (li
+             :display "flex"
+             :align-items "center"
+             :width "100%"
+             (a :display "flex" :align-items "center"
+               (img :margin-right "8px"))
+             (span
+               :display "inline"
+               :margin-left "10px"
+               :font-size "small"
+               :white-space "nowrap")))
          (.breadcrumb
            :display "flex"
            :align-items "center"
@@ -94,31 +105,32 @@
              :justify-content "center"
              :align-items "center"
              :gap "0.5rem"
-             :font-size "0.95rem")
-           ((:or .add-user .add-role)
-             :display "grid"
-             :align-items "start"
-             :margin-top "1rem"
-             :padding "1.5rem"
-             :gap "0.5rem"
-             (.form-group
-               :display "flex"
-               :align-items "right"
-               (label
-                 :grid-column "1"
-                 :width "20rem"
-                 :text-align "right"
-                 :margin-right "0.5em")
-               (.textinput
-                 :grid-column "2"
-                 :width "50%"))
-             (.checkbox-group
-               :grid-column "2")
-             (.button-container
-               :grid-column "1 / -1"
-               :justify-self "center"
-               (.submit-button
-                 :margin-top "1rem"))))
+             :font-size "0.95rem"))
+
+         ((:or .add-user .add-role .add-directory)
+           :display "grid"
+           :align-items "start"
+           :margin-top "1rem"
+           :padding "1.5rem"
+           :gap "0.5rem"
+           (.form-group
+             :display "flex"
+             :align-items "right"
+             (label
+               :grid-column "1"
+               :width "20rem"
+               :text-align "right"
+               :margin-right "0.5em")
+             (.textinput
+               :grid-column "2"
+               :width "50%"))
+           (.checkbox-group
+             :grid-column "2")
+           (.button-container
+             :grid-column "1 / -1"
+             :justify-self "center"
+             (.submit-button
+               :margin-top "1rem")))
 
          ((:or .delete-users-form .delete-roles-form)
            :width "100%"
@@ -142,4 +154,3 @@
                  :font-size "1.1rem"))))
 
          (.bogus-class :end "end")))))
-
