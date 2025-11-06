@@ -540,9 +540,6 @@ file name and returns the path to the file with a trailing slash."
       (input-checkbox-list "roles" "Roles:" roles)
       (input-submit-button "Create"))))
 
-(defun admin-user-p (user)
-  (let ((user-roles (a:list-user-role-names *rbac* user :page-size 1000)))
-
 (defun render-new-directory-form (user parent)
   (let* ((user-roles (a:list-user-role-names *rbac* user :page-size 1000))
           (parent-roles (a:list-resource-role-names *rbac* parent
