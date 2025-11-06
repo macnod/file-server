@@ -553,7 +553,7 @@ file name and returns the path to the file with a trailing slash."
                              :test 'equal))
                          (cons "public"
                            (if (member *root-role* user-roles :test 'equal)
-                             (if (member *guest-role* parent-foles :test 'equal)
+                             (if (member *guest-role* parent-roles :test 'equal)
                                (a:list-role-names-regular *rbac*
                              (u:distinct-values
                                (append
@@ -562,7 +562,7 @@ file name and returns the path to the file with a trailing slash."
                                  (a:list-resource-role-names-regular *rbac*
                                    parent :page-size 1000)))
                            (a:list-user-role-names-regular *rbac* user
-                             :page-size 100))))))
+                             :page-size 100))))))))
     (input-form "add-directory" "add-directory" "/add-directory" "post"
       (input-text "directory" "Directory Name (no slashes):" t)
       (input-checkbox-list "roles" "Roles: " role-options)
