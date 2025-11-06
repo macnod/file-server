@@ -320,7 +320,7 @@ insert into roles (role_name, role_description, exclusive, id, updated_by) value
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
     ),
     (
-        'guest',
+        'public',
         'Role for anonymous users that are not logged in.',
         false,
         'c9b6868a-0550-41eb-9c74-4d90e3ea03b5',
@@ -556,15 +556,15 @@ insert into role_users (role_id, user_id, updated_by) values
     --     '77988608-31cb-493b-ad06-af3a3db6f759', -- macnod user
     --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     -- ),
-    -- Guest role
-    -- All users are assigned to the guest role
+    -- Public role
+    -- All users are assigned to the public role
     -- (
-    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- guest role
+    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
     --     'a546c200-12f6-47af-9652-3ac5c3d57f39', -- admin user
     --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     -- ),
     -- (
-    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- guest role
+    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
     --     '77988608-31cb-493b-ad06-af3a3db6f759', -- macnod user
     --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     -- ),
@@ -599,7 +599,7 @@ insert into role_users (role_id, user_id, updated_by) values
 --     ),
 --     (
 --         'd8ccd5a1-eb0a-4cba-b854-9dd1072db137', -- /public/ resource
---         'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- guest trole
+--         'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public trole
 --         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system
 --     ),
 --     (
