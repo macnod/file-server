@@ -570,14 +570,15 @@ file name and returns the path to the file with a trailing slash."
       (input-submit-button "Create"))))
 
 (defun role-options (user parent)
-  (let ((user-roles (user-roles user))
-         (parent-roles (resource-roles parent))
-         (exceptions (list (exclusive-role-for user))))
-    (if (has parent-roles "public")
-      (exclude-except user-roles ":exclusive$" exceptions)
-      (exclude-except
-        (intersection parent-roles user-roles)
-        exceptions))))
+  (let* ((user-roles (user-roles user))
+          (parent-roles (resource-roles parent))
+          (exceptions (list (exclusive-role-for user)))
+          (roles (if (has parent-roles "public")
+                   user-roles
+                   (intersection parent-roles user-roles))))
+    (if (has user-roles *admin-role*)
+      roles
+      (exclude-except roles ":exclude$" exceptions))))
 
 (defun render-new-directory-form (user parent)
   (input-form "add-directory" "add-directory" "/add-directory" "post"

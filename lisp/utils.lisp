@@ -117,7 +117,7 @@ EXCLUDE-LIST."
     (lambda (s) (member s exclude-list :test 'equal))
     reference-list))
 
-(defgeneric re-exclude-with-exceptions (reference-list exclude exceptions)
+(defgeneric exclude-except (reference-list exclude exceptions)
   (:documentation "Returns a list containing the elements of REFERENCE-LIST
 that don't match the EXCLUDE regular expression and that don't match
 EXCEPTIONS.")
