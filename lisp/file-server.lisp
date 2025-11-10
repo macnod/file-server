@@ -698,7 +698,7 @@ file name and returns the path to the file with a trailing slash."
   "role")
 
 (define-add-handler (add-directory-handler "/add-directory"
-                      :required-roles (list *logged-in-role))
+                      :required-roles (list *logged-in-role*))
   (directory parent user
     (new-roles :real-name "roles" :parameter-type '(list string)))
   (((not (re:scan "/" directory)) "Directory has slashes")

@@ -79,7 +79,7 @@ spec:
     spec:
       containers:
         - name: file-server
-          image: macnod/file-server:0.96.7
+          image: macnod/file-server:0.96.10
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -96,7 +96,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: 0.96.7
+              value: 0.96.10
             # Database connection
             - name: DB_HOST
               value: "postgres-service"
@@ -111,10 +111,8 @@ spec:
                 secretKeyRef:
                   name: file-server-secrets
                   key: postgres-password
-            # Root user with access to all resources
-            - name: ROOT_USER
-              value: "admin"
-            - name: ROOT_PASSWORD
+            # Admin user, with access to all resources
+            - name: ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: file-server-secrets
