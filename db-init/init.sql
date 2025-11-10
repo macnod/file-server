@@ -260,22 +260,6 @@ insert into users (username, email, id, updated_by, password_hash) values
         'a5ad2e9965d47e970d4d6b7e123dbdb5'      -- password_hash
     );
 
---    (
---        'admin',                                -- username
---        'admin@example.com',                    -- email
---        'a546c200-12f6-47af-9652-3ac5c3d57f39', -- id
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- updated_by
---        'af271d93c4b10bfe43269da6395a6b63'      -- password_hash
---    ),
---    (
---        'macnod',                               -- username
---        'macnod@example.com',                   -- email
---        '77988608-31cb-493b-ad06-af3a3db6f759', -- id
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- updated_by
---        '564580ac65e798bfc5ad1bfbbdc8b78b'      -- password_hash
---    );
---
-
 --
 -- insert roles
 --
@@ -289,29 +273,7 @@ insert into roles (role_name, role_description, exclusive, id, updated_by) value
         '200f91db-d0c8-43d1-9430-72f1fd03b285',
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
     ),
-
---    -- General roles
---    (
---        'admin',
---        'Role for admin operations. God-like role, initially assigned to the admin user.',
---        false,
---        '39fcd813-22a3-42ad-b489-2aa0a0a76d91',
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---    ),
---    (
---        'editor',
---        'Role for makeing changes to resources.',
---        false,
---        '8f5b72d3-5008-420a-b0c5-31110697fcd4',
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---    ),
---    (
---        'viewer',
---        'Role for viewing resources.',
---        false,
---        'aaa2b2fa-411b-4d71-b24a-600e4076d25b',
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---    ),
+    -- Basic roles
     (
         'logged-in',
         'Role for logged-in users.',
@@ -334,21 +296,6 @@ insert into roles (role_name, role_description, exclusive, id, updated_by) value
         '5afef606-07f8-4c7d-afe3-da66f00ed015',
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
     );
---    (
---        'logged-in:exclusive',
---        'Exclusive role for user admin.'
---        true,
---        '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d',
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---    ),
---    (
---        'macnod:exclusive',
---        'Exclusive role for user macnod.',
---        true,
---        '65555bf9-c80e-47b1-abcf-df74ba1eb5db',
---        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---    );
-
 
 --
 -- insert permissions
@@ -375,31 +322,6 @@ insert into permissions (permission_name, id, updated_by) values
         'f77b0d67-330a-4b0d-8166-d73229547f5f',
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
     );
-
---
--- insert resources
---
-
--- insert into resources (resource_name, resource_description, id, updated_by) values
---     (
---         '/admin/',
---         'Default resource for admin role.',
---         '7a170867-5a95-41ca-ad0f-edc9af80dc5c',
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---     ),
---     (
---         '/public/',
---         'Default resource for public role.',
---         'd8ccd5a1-eb0a-4cba-b854-9dd1072db137',
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---     ),
---     (
---         '/user/',
---         'Default resource for user role.',
---         'e618d348-8b69-4dc8-8d20-12d32415231f',
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
---     );
-
 
 --
 -- insert role-permissions
@@ -430,44 +352,23 @@ insert into role_permissions (role_id, permission_id, updated_by) values
         'f77b0d67-330a-4b0d-8166-d73229547f5f', -- delete
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     ),
-    -- -- admin: create, read, update, delete
-    -- (
-    --     '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
-    --     '1d8f1218-7518-4c17-80f6-edb9987e8a20', -- create
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
-    --     '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
-    --     '8563f298-df16-490d-aac1-92fea8dd196d', -- update
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
-    --     'f77b0d67-330a-4b0d-8166-d73229547f5f', -- delete
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- -- editor: read, update
-    -- (
-    --     '8f5b72d3-5008-420a-b0c5-31110697fcd4', -- editor role
-    --     '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '8f5b72d3-5008-420a-b0c5-31110697fcd4', -- editor role
-    --     '8563f298-df16-490d-aac1-92fea8dd196d', -- update
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- -- viewer: read
-    -- (
-    --     'aaa2b2fa-411b-4d71-b24a-600e4076d25b', -- viewer role
-    --     '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
+    
+    --
+    -- Basic role (logged-in, public) permissions
+    --
+    -- logged-in: read
+    (
+        '9ad10cfa-78fe-43af-a417-0f104b64766a', -- logged-in role
+        '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
+    ),
+    -- public: read
+    (
+        'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
+        '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
+    ),
+
     --
     -- Exclusive role permissions
     --
@@ -492,118 +393,30 @@ insert into role_permissions (role_id, permission_id, updated_by) values
         'f77b0d67-330a-4b0d-8166-d73229547f5f', -- delete
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     );
-    -- -- admin:exclusive
-    -- (
-    --     '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d', -- admin:exclusive role
-    --     '1d8f1218-7518-4c17-80f6-edb9987e8a20', -- create
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d', -- admin:exclusive role
-    --     '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d', -- admin:exclusive role
-    --     '8563f298-df16-490d-aac1-92fea8dd196d', -- update
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d', -- admin:exclusive role
-    --     'f77b0d67-330a-4b0d-8166-d73229547f5f', -- delete
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- -- macnod:exclusive
-    -- (
-    --     '65555bf9-c80e-47b1-abcf-df74ba1eb5db', -- macnod:exclusive role
-    --     '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '65555bf9-c80e-47b1-abcf-df74ba1eb5db', -- macnod:exclusive role
-    --     '8563f298-df16-490d-aac1-92fea8dd196d', -- update
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- );
-
 
 --
 -- insert role users
 --
 
 insert into role_users (role_id, user_id, updated_by) values
-    -- System role
+    -- Add all existing roles to the system user
     (
         '200f91db-d0c8-43d1-9430-72f1fd03b285', -- system role
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     ),
-    -- General roles
-    -- -- admin user
-    -- (
-    --     '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
-    --     'a546c200-12f6-47af-9652-3ac5c3d57f39', -- admin user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- -- Editor role
-    -- -- admin and macnod users
-    -- (
-    --     '8f5b72d3-5008-420a-b0c5-31110697fcd4', -- editor role
-    --     'a546c200-12f6-47af-9652-3ac5c3d57f39', -- admin user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '8f5b72d3-5008-420a-b0c5-31110697fcd4', -- editor role
-    --     '77988608-31cb-493b-ad06-af3a3db6f759', -- macnod user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- Public role
-    -- All users are assigned to the public role
-    -- (
-    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
-    --     'a546c200-12f6-47af-9652-3ac5c3d57f39', -- admin user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
-    --     '77988608-31cb-493b-ad06-af3a3db6f759', -- macnod user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- Exclusive roles
-    -- Each exclusive role has only one user
     (
         '5afef606-07f8-4c7d-afe3-da66f00ed015', -- system:exclusive
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user
         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
+    ),
+    (
+        '9ad10cfa-78fe-43af-a417-0f104b64766a', -- logged-in role
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
+    ),
+    (
+        'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public role
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user
+        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
     );
-    -- (
-    --     '89ec7cdc-bb29-4276-8fd0-29acfa8fb08d', -- admin:exclusive
-    --     'a546c200-12f6-47af-9652-3ac5c3d57f39', -- admin user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- ),
-    -- (
-    --     '65555bf9-c80e-47b1-abcf-df74ba1eb5db', -- macnod:exclusive
-    --     '77988608-31cb-493b-ad06-af3a3db6f759', -- macnod user
-    --     '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user
-    -- );
-
-
---
--- insert resource roles
---
-
--- insert into resource_roles (resource_id, role_id, updated_by) values
---     (
---         '7a170867-5a95-41ca-ad0f-edc9af80dc5c', -- /admin/ resource
---         '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system
---     ),
---     (
---         'd8ccd5a1-eb0a-4cba-b854-9dd1072db137', -- /public/ resource
---         'c9b6868a-0550-41eb-9c74-4d90e3ea03b5', -- public trole
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system
---     ),
---     (
---         'e618d348-8b69-4dc8-8d20-12d32415231f', -- /user/ resource
---         '39fcd813-22a3-42ad-b489-2aa0a0a76d91', -- admin role
---         '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system
---     );

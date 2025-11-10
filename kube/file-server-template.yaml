@@ -109,14 +109,12 @@ spec:
                 secretKeyRef:
                   name: file-server-secrets
                   key: postgres-password
-            # Root user with access to all resources
-            - name: ROOT_USER
-              value: "admin"
-            - name: ROOT_PASSWORD
+            # Admin user, with access to all resources
+            - name: ADMIN_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: file-server-secrets
-                  key: root-user-password
+                  key: admin-user-password
             - name: JWT_SECRET
               valueFrom:
                 secretKeyRef:

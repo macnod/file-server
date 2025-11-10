@@ -94,6 +94,65 @@ the repeated key becomes an array of the ALIST values."
     (vector-push-extend value existing)
     finally (return h)))
 
+(defgeneric has (reference-list thing)
+  (:documentation
+    "Returns T if REFERENCE-LIST contains THING. THING can be a string or a")
+  (:method ((reference-list list) (thing string))
+    (when (member thing reference-list :test 'equal) t))
+  (:method ((reference-list list) (thing list))
+    (when
+      (every (lambda (s) (member s reference-list :test 'equal)) thing)
+      t)))
+
+(defun has-some (reference-list query-list)
+  "Returns T if REFERENCE-LIST contains any of the strings in QUERY-LIST."
+  (when
+    (some (lambda (s) (member s reference-list :test 'equal)) query-list)
+    t))
+
+(defun exclude (reference-list exclude-list)
+  "Returns a list containing the elements of REFERENCE-LIST that are not in
+EXCLUDE-LIST."
+  (remove-if
+    (lambda (s) (member s exclude-list :test 'equal))
+    reference-list))
+
+(defgeneric re-exclude-with-exceptions (reference-list exclude exceptions)
+  (:documentation "Returns a list containing the elements of REFERENCE-LIST
+that don't match the EXCLUDE regular expression and that don't match
+EXCEPTIONS.")
+  (:method ((reference-list list) (exclude string) (exceptions list))
+    "Returns a list containing the elements of REFERENCE-LIST that don't match
+EXCLUDE and are not among EXCEPTIONS."
+    (remove-if
+      (lambda (s)
+        (and (re:scan exclude s)
+          (not (member s exceptions :test 'equal))))
+      reference-list)))
+
+(defun exclusive-role-for (username)
+  "Returns the exclusive role for USERNAME."
+  (format nil "~a:exclusive" username))
+
+(defun additional-text (count-actual count-listed count-total)
+  "Returns a string indicating, in fuzzy terms, how many additional items, beyond
+COUNT-LISTED, exist and are not being shown. COUNT-ACTUAL is the actual number
+of items being considered. COUNT-TOTAL is the maximum number of items taht will
+be pulled from the data source. COUNT-LISTED is the maximum number of items that
+can be shown. If COUNT-ACTUAL is less than or equal to COUNT-LISTED, this
+function returns an empty string, because no notice of additional items is
+needed. If COUNT-ACTUAL is greater than COUNT-LISTED, but less than COUNT-TOTAL,
+this function returns a string indicating the number of items that are not being
+shown. If COUNT-ACTUAL is equal or greater than COUNT-TOTAL, this function
+returns a string indicating that there are many more items not being shown,
+without specifying how many."
+  (cond
+    ((<= count-actual count-listed) nil)
+    ((< count-actual count-total)
+      (format nil "and ~d more"
+        (- count-total count-actual)))
+    (t "and many more")))
+
 ;;
 ;; END Misc
 ;;
@@ -131,10 +190,6 @@ empty string."
                       (h:url-encode (format nil "~a" value))))
                   (or beg url))
       finally (return url))))
-
-(defun input-hidden (name value)
-  (s:with-html-string
-    (:input :type "hidden" :name name :value value)))
 
 (defun input-text (name label &optional required password)
   (s:with-html-string
