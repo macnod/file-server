@@ -312,7 +312,7 @@ file name and returns the path to the file with a trailing slash."
               (:span (format nil "~{~a~^, ~}" roles)))
             ;; Directories
             (:ul :class "listing"
-              (loop 
+              (loop
                 with image = "/image?name=folder.png"
                 and image-edit = "/image?name=edit.png"
                 for dir in subdirs
@@ -324,10 +324,14 @@ file name and returns the path to the file with a trailing slash."
                                         "parent" path)
                 collect
                 (:li
-                  (:a :href href (:img :src image :width 24 :height 24) name)
+                  (:a :href href
+                    (:img :src image
+                      :alt "Open directory" :title "Open directory"
+                      :width 24 :height 24) name)
                   (:span dir-roles)
                   (:a :href edit-roles-href :class "edit-roles-link"
-                    (:img :src image-edit :width 16 :height 16)))))
+                    (:img :src image-edit :alt "Edit roles" :title "Edit roles"
+                      :width 16 :height 16)))))
             ;; Files
             (:ul :class "listing"
               (mapcar
@@ -335,6 +339,7 @@ file name and returns the path to the file with a trailing slash."
                   (:li (:a :href (format nil "/files?path=~a" f)
                          :target "_blank"
                          (:img :src "/image?name=file.png"
+                           :alt "Open file" :title "Open file"
                            :width 24 :height 24)
                          (u:filename-only f))))
                 files))
@@ -1042,7 +1047,7 @@ file name and returns the path to the file with a trailing slash."
           (error-page "editing directory roles" user
             "One or more roles are inaccessible or don't exist: ~{~a~^, ~}"
             unknown-roles)))
-      
+
       ;; Add and remove roles as needed
       (let* ((existing-roles (resource-roles directory))
               (to-add (set-difference roles existing-roles :test 'equal))
@@ -1060,7 +1065,7 @@ file name and returns the path to the file with a trailing slash."
         (success-page user "Updated roles for directory ~a." directory))))
 
 (defun undeletable-roles ()
-  (list 
+  (list
     *admin-role*
     (exclusive-role-for *admin*)
     *public-role*
@@ -1077,7 +1082,7 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-role-list-count ()
   (length
-    (exclude 
+    (exclude
       (role-names)
       (excluded-from-role-list))))
 
