@@ -95,8 +95,9 @@ the repeated key becomes an array of the ALIST values."
     finally (return h)))
 
 (defgeneric has (reference-list thing)
-  (:documentation
-    "Returns T if REFERENCE-LIST contains THING. THING can be a string or a")
+  (:documentation "Returns T if REFERENCE-LIST contains THING. If THING is a
+string, this function checks for that string in REFERENCE-LIST. If THING is a
+list, this function checks that all elements of THING are in REFERENCE-LIST.")
   (:method ((reference-list list) (thing string))
     (when (member thing reference-list :test 'equal) t))
   (:method ((reference-list list) (thing list))
@@ -105,17 +106,28 @@ the repeated key becomes an array of the ALIST values."
       t)))
 
 (defun has-some (reference-list query-list)
-  "Returns T if REFERENCE-LIST contains any of the strings in QUERY-LIST."
+  "Returns T if REFERENCE-LIST contains any of the elements in QUERY-LIST."
   (when
     (some (lambda (s) (member s reference-list :test 'equal)) query-list)
     t))
 
-(defun exclude (reference-list exclude-list)
-  "Returns a list containing the elements of REFERENCE-LIST that are not in
-EXCLUDE-LIST."
+(defgeneric exclude (reference-list exclude)
+  (:documentation "Returns a list containing the elements of REFERENCE-LIST
+that are not in EXCLUDE. If EXCLUDE is a list, this function excludes all
+elements in EXCLUDE from REFERENCE-LIST. If EXCLUDE is a string, this function
+excludes the string from REFERENCE-LIST")
+  (:method ((reference-list list) (exclude string))
+    "Returns a list containing the elements of REFERENCE-LIST excluding
+EXCLUDE."
   (remove-if
-    (lambda (s) (member s exclude-list :test 'equal))
+    (lambda (s) (equal s exclude))
     reference-list))
+  (:method ((reference-list list) (exclude list))
+    "Returns a list containing the elements of REFERENCE-LIST excluding
+all elements in EXCLUDE."
+    (remove-if
+      (lambda (s) (member s exclude :test 'equal))
+      reference-list)))
 
 (defgeneric exclude-except (reference-list exclude exceptions)
   (:documentation "Returns a list containing the elements of REFERENCE-LIST

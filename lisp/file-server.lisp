@@ -288,7 +288,9 @@ file name and returns the path to the file with a trailing slash."
     (when additional
       (setf roles-show
         (append roles-show (list additional))))
-    roles-show))
+    (if (and (not roles-show) (has raw-roles *admin-role*))
+      (list *admin-role*)
+      roles-show)))
 
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
@@ -310,15 +312,22 @@ file name and returns the path to the file with a trailing slash."
               (:span (format nil "~{~a~^, ~}" roles)))
             ;; Directories
             (:ul :class "listing"
-              (loop for dir in subdirs
+              (loop 
+                with image = "/image?name=folder.png"
+                and image-edit = "/image?name=edit.png"
+                for dir in subdirs
                 for name = (u:leaf-directory-only dir)
                 for dir-roles = (format nil "~{~a~^, ~}" (directory-roles dir))
                 for href = (format nil "/files?path=~a" dir)
-                for image = "/image?name=folder.png"
+                for edit-roles-href = (add-to-url-query "/edit-directory-roles"
+                                        "directory" dir
+                                        "parent" path)
                 collect
                 (:li
                   (:a :href href (:img :src image :width 24 :height 24) name)
-                  (:span dir-roles))))
+                  (:span dir-roles)
+                  (:a :href edit-roles-href :class "edit-roles-link"
+                    (:img :src image-edit :width 16 :height 16)))))
             ;; Files
             (:ul :class "listing"
               (mapcar
@@ -483,6 +492,12 @@ file name and returns the path to the file with a trailing slash."
             :path path)
           (h:handle-static-file abs-path))))))
 
+(defun user-list-user-roles (user)
+  (let ((roles (exclude (db-list-roles user t) *logged-in-role*)))
+    (if (has roles (list *admin-role* (exclusive-role-for *admin*)))
+      (exclude roles (exclusive-role-for *admin*))
+      roles)))
+
 (defun render-user-list (page page-size)
   (let ((headers (list "User" "Email" "Created" "Last Login" "Roles" ""))
          (rows (loop
@@ -495,7 +510,7 @@ file name and returns the path to the file with a trailing slash."
                  for email = (getf user :email)
                  for created = (readable-timestamp (getf user :created-at))
                  for last-login = (readable-timestamp (getf user :last-login))
-                 for roles = (when include (db-list-roles username))
+                 for roles = (when include (user-list-user-roles username))
                  for checkbox = (input-checkbox "usernames" "" :value username
                                   :disabled (has fixed-users username))
                  when include
@@ -974,6 +989,76 @@ file name and returns the path to the file with a trailing slash."
         finally (h:redirect source :protocol :https))
       (h:redirect source :protocol :https))))
 
+(h:define-easy-handler (edit-directory-roles-handler :uri "/edit-directory-roles"
+                          :default-request-type :get)
+    (directory parent)
+    (multiple-value-bind (user allowed required-roles)
+      (session-user (list *logged-in-role*))
+      (u:log-it-pairs :debug :in "edit-directory-roles-handler"
+        :user user
+        :allowed allowed
+        :required-roles required-roles
+        :directory directory
+        :parent parent)
+      (unless allowed
+        (setf (h:return-code*) h:+http-forbidden+))
+      (page
+        (render-edit-directory-roles-form parent directory user)
+        :user user
+        :subtitle (format nil "Edit Roles for Directory ~a" directory))))
+
+(h:define-easy-handler (edit-directory-roles-do-handler :uri "/edit-directory-roles-do"
+                             :default-request-type :post)
+  (directory parent (roles :parameter-type '(list string)))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *logged-in-role*))
+    (edit-directory-roles-do-helper
+      directory parent roles user allowed required-roles)))
+
+(defun edit-directory-roles-do-helper
+  (directory parent roles user allowed required-roles)
+    (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+      :user user
+      :allowed allowed
+      :required-roles required-roles
+      :directory directory
+      :parent parent
+      :roles roles)
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from edit-directory-roles-do-helper "Forbidden"))
+    (let* ((parent-roles (resource-roles parent))
+            (user-roles (user-roles user))
+            (allowed-roles (role-options user parent))
+            (unknown-roles (exclude roles allowed-roles)))
+      (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+        :parent-roles parent-roles
+        :user-roles user-roles
+        :allowed-roles allowed-roles
+        :unknown-roles unknown-roles)
+      ;; Are all the specified roles accessible to the user?
+      (when unknown-roles
+        (return-from edit-directory-roles-do-helper
+          (error-page "editing directory roles" user
+            "One or more roles are inaccessible or don't exist: ~{~a~^, ~}"
+            unknown-roles)))
+      
+      ;; Add and remove roles as needed
+      (let* ((existing-roles (resource-roles directory))
+              (to-add (set-difference roles existing-roles :test 'equal))
+              (to-remove (set-difference existing-roles roles :test 'equal)))
+        (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+          :existing-roles existing-roles
+          :to-add to-add
+          :to-remove to-remove)
+        ;; Add roles to the directory
+        (loop for role in to-add do
+          (a:d-add-resource-role *rbac* directory role))
+        ;; Remove roles from the directory
+        (loop for role in to-remove do
+          (a:d-remove-resource-role *rbac* directory role))
+        (success-page user "Updated roles for directory ~a." directory))))
+
 (defun undeletable-roles ()
   (list 
     *admin-role*
@@ -1030,6 +1115,26 @@ file name and returns the path to the file with a trailing slash."
               (permission-names))
             (input-submit-button "Create")))))
 
+(defun render-edit-directory-roles-form (parent directory user)
+  "Renders a form to edit the roles for DIRECTORY as USER. The form lists all the roles
+that USER can assign to FILE, which depend on USER and PARENT. A user can only assign
+roles to a directory that they themselves have and that are assigned to the parent
+directory. The form displays the roles with with checkboxes for each role. These
+checkboxes are checked if the role is currently assigned to DIRECTORY."
+  (let* ((roles (role-options user parent))
+          (checked (loop for role in roles
+                     for checked = (has (resource-roles directory) role)
+                     collect checked into checked-states
+                     finally (return checked-states))))
+    (u:log-it-pairs :debug :in "render-edit-directory-roles-form"
+      :parent parent :directory directory :user user :roles roles)
+    (input-form "edit-directory-roles" "edit-directory-roles"
+      "/edit-directory-roles-do" "post"
+      (input-hidden "parent" parent)
+      (input-hidden "directory" directory)
+      (input-checkbox-list "roles" "Roles: " roles :checked-states checked)
+      (input-submit-button "Update"))))
+
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
                         :port *http-port*
@@ -1079,12 +1184,15 @@ file name and returns the path to the file with a trailing slash."
     (a:d-remove-user-role *rbac* *guest* *logged-in-role*))
   ;; Fix permissions for guest exclusive role (we want read only)
   (loop with exclusive-role = (exclusive-role-for *guest*)
-    for permission in (exclude (permission-names) (list "read"))
+    for permission in (exclude (permission-names) "read")
     when (has (role-permission-names exclusive-role) permission)
     do (a:d-remove-role-permission *rbac* exclusive-role permission))
   ;; Add a public root directory resource
   (unless (a:get-id *rbac* *resources-table* "/")
     (a:d-add-resource *rbac* "/" :roles (list *public-role*)))
+  ;; Add the logged-in role to the "/" resource
+  (unless (has (resource-roles "/") *logged-in-role*)
+    (a:d-add-resource-role *rbac* "/" *logged-in-role*))
   ;; All done. Return the connection, even though nothing is likely
   ;; to need it, for debugging and testing.
   *rbac*)

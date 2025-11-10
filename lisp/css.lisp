@@ -29,7 +29,9 @@
                :display "inline"
                :margin-left "10px"
                :font-size "small"
-               :white-space "nowrap")))
+               :white-space "nowrap")
+             (.edit-roles-link
+               :margin-left "10px")))
          (.breadcrumb
            :display "flex"
            :align-items "center"
@@ -107,7 +109,7 @@
              :gap "0.5rem"
              :font-size "0.95rem"))
 
-         ((:or .add-user .add-role .add-directory)
+         ((:or .add-user .add-role .add-directory .edit-directory-roles)
            :display "grid"
            :align-items "start"
            :margin-top "1rem"
