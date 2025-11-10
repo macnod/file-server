@@ -182,7 +182,7 @@ file name and returns the path to the file with a trailing slash."
             (clean-path (if (equal path-only "/")
                           "/"
                           (format nil "/~a/" (string-trim "/" path-only)))))
-      (u:log-it-pairs :in "clean-path"
+      (u:log-it-pairs :debug :in "clean-path"
         :path-only path
         :clean-path clean-path)
       clean-path)))
@@ -351,8 +351,7 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (login-handler :uri "/login")
   (username password error redirect)
   (setf (h:content-type*) "text/html")
-  (u:log-it-pairs :debug
-    :in "login-handler"
+  (u:log-it-pairs :debug :in "login-handler"
     :username username
     :error error
     :redirect redirect)
@@ -426,8 +425,7 @@ file name and returns the path to the file with a trailing slash."
     (let* ((abs-path (u:join-paths *document-root* path))
             (path-only (clean-path path))
             (method (h:request-method*)))
-      (u:log-it-pairs :debug
-        :in "files-handler"
+      (u:log-it-pairs :debug :in "files-handler"
         :user user
         :allowed allowed
         :required-roles required-roles
@@ -436,8 +434,7 @@ file name and returns the path to the file with a trailing slash."
 
       ;; Is user authorized?
       (unless allowed
-        (u:log-it-pairs :info
-          :in "file-handler"
+        (u:log-it-pairs :info :in "file-handler"
           :status "authorization failed"
           :old-user user
           :new-user *guest*)
