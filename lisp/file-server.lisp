@@ -572,7 +572,7 @@ file name and returns the path to the file with a trailing slash."
 (defun role-options (user parent)
   (let ((user-roles (user-roles user))
          (parent-roles (resource-roles parent))
-         (exceptions (list (exclusive-role-for-user user))))
+         (exceptions (list (exclusive-role-for user))))
     (if (has parent-roles "public")
       (exclude-except user-roles ":exclusive$" exceptions)
       (exclude-except
