@@ -160,7 +160,7 @@ should correspond exactly to the directories in the file system."
                      do (a:d-remove-resource *rbac* dir)
                      and collect dir)))
     (when added
-      (u:log-it-pairs :info :in "sync-directories" 
+      (u:log-it-pairs :info :in "sync-directories"
         :status "added directories"
         :directories added))
     (when removed
@@ -466,7 +466,7 @@ file name and returns the path to the file with a trailing slash."
       ;; Does the user have access to the path?
       (unless (has-read-access user path-only)
         (u:log-it-pairs :info :in "file-handler"
-          :status "access denied" 
+          :status "access denied"
           :path path :path-only path-only :user user)
         (setf (h:return-code h:*reply*) h:+http-forbidden+)
         (return-from files-handler "Forbidden"))
@@ -482,7 +482,7 @@ file name and returns the path to the file with a trailing slash."
           (render-directory-listing user path abs-path))
         (progn
           (u:log-it-pairs :debug :in "file-handler"
-            :status "path is a file" 
+            :status "path is a file"
             :path path)
           (h:handle-static-file abs-path))))))
 
@@ -607,7 +607,9 @@ file name and returns the path to the file with a trailing slash."
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
 (defmacro define-add-handler
-  ((handler-name uri &key required-roles)
+  ;; *admin-role* is not available during compilation, we we're using
+  ;; its value directly here.
+  ((handler-name uri &key (required-roles (list "admin")))
     http-parameters
     (&rest validation-clauses)
     add-function
@@ -615,7 +617,7 @@ file name and returns the path to the file with a trailing slash."
   `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :post)
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
-       (session-user ',(or required-roles (list *admin-role*)))
+       (session-user ',required-roles)
 
        (let* ((param-specs ',http-parameters)
                (name-sym (cond
@@ -789,7 +791,9 @@ file name and returns the path to the file with a trailing slash."
     (values user allowed required-roles)))
 
 (defmacro define-list-handler
-  ((handler-name uri &key required-roles)
+  ;; *admin-role* is not available during compilation, we we're using
+  ;; its value directly here.
+  ((handler-name uri &key (required-roles (list "admin")))
     http-parameters
     render-list-function
     list-count-function
@@ -798,7 +802,7 @@ file name and returns the path to the file with a trailing slash."
   `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :get)
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
-       (session-user ',(or required-roles (list *admin-role*)))
+       (session-user ',required-roles)
 
        (let* ((action (format nil "listing ~a" ',list-name))
                (handler (format nil "~(~a~)" ',handler-name))
