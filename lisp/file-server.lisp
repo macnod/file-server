@@ -486,17 +486,19 @@ file name and returns the path to the file with a trailing slash."
 (defun render-user-list (page page-size)
   (let ((headers (list "User" "Email" "Created" "Last Login" "Roles" ""))
          (rows (loop
-                 with users = (exclude (a:list-users *rbac* page page-size)
-                                (list *system*))
-                 and fixed-users = (list *admin* *guest*)
+                 with users = (a:list-users *rbac* page page-size)
+                 and excluded = (list *system*)
+                 and fixed-users = (list *admin* *guest* *system*)
                  for user in users
                  for username = (getf user :username)
+                 for include = (not (has excluded username))
                  for email = (getf user :email)
                  for created = (readable-timestamp (getf user :created-at))
                  for last-login = (readable-timestamp (getf user :last-login))
-                 for roles = (db-list-roles username)
+                 for roles = (when include (db-list-roles username))
                  for checkbox = (input-checkbox "usernames" "" :value username
                                   :disabled (has fixed-users username))
+                 when include
                  collect (list username email created last-login
                            (format nil "~{~a~^, ~}" roles) checkbox))))
     (input-form "delete-users-form" "delete-users-form" "/delete-users" "post"
@@ -540,6 +542,9 @@ file name and returns the path to the file with a trailing slash."
 (defun role-names ()
   (a:list-role-names *rbac* :page-size *max-page-size*))
 
+(defun role-permission-names (role)
+  (a:list-role-permission-names *rbac* role))
+
 (defun regular-roles ()
   (a:list-role-names-regular *rbac* :page-size *max-page-size*))
 
@@ -575,7 +580,13 @@ file name and returns the path to the file with a trailing slash."
           (exceptions (list (exclusive-role-for user)))
           (roles (if (has parent-roles "public")
                    user-roles
-                   (intersection parent-roles user-roles))))
+                   (intersection parent-roles user-roles :test 'equal))))
+    (u:log-it-pairs :debug :in "role-options"
+      :user user
+      :user-roles user-roles
+      :parent parent
+      :parent-roles parent-roles
+      :roles roles)
     (if (has user-roles *admin-role*)
       roles
       (exclude-except roles ":exclude$" exceptions))))
@@ -856,7 +867,7 @@ file name and returns the path to the file with a trailing slash."
   ((page :parameter-type 'integer :init-form 1)
     (page-size :parameter-type 'integer :init-form 20))
   (render-role-list page page-size)
-  (a:list-roles-regular-count *rbac*)
+  (render-role-list-count)
   (render-new-role-form)
   "roles")
 
@@ -963,21 +974,46 @@ file name and returns the path to the file with a trailing slash."
         finally (h:redirect source :protocol :https))
       (h:redirect source :protocol :https))))
 
+(defun undeletable-roles ()
+  (list 
+    *admin-role*
+    (exclusive-role-for *admin*)
+    *public-role*
+    *system-role*
+    (exclusive-role-for *system*)))
+
+(defun excluded-from-role-list ()
+  (list
+    (exclusive-role-for *public-role*)
+    *logged-in-role*
+    (exclusive-role-for *logged-in-role*)
+    *system-role*
+    (exclusive-role-for *system-role*)))
+
+(defun render-role-list-count ()
+  (length
+    (exclude 
+      (role-names)
+      (excluded-from-role-list))))
+
 (defun render-role-list (page page-size)
   (let ((headers (list "Role" "Description" "Created" "Users" "Permissions" ""))
          (rows
            (loop
-             with roles = (a:list-roles-regular *rbac* page page-size)
-             with admin-roles = (list *admin-role*)
+             with roles = (a:list-roles *rbac* page page-size)
              for role in roles
              for role-name = (getf role :role-name)
+             for include = (not (has (excluded-from-role-list) role-name))
              for description = (getf role :role-description)
              for created = (readable-timestamp (getf role :created-at))
-             for user-count = (a:list-role-users-count *rbac* role-name)
-             for permissions = (a:list-role-permission-names *rbac* role-name)
-             for checkbox = (input-checkbox "roles" "" :value role-name
-                              :disabled (has admin-roles role-name))
-             collect
+             for user-count = (when include
+                                (a:list-role-users-count *rbac* role-name))
+             for permissions = (when include
+                                 (a:list-role-permission-names *rbac* role-name))
+             for checkbox = (when include
+                              (input-checkbox "roles" "" :value role-name
+                              :disabled (has (undeletable-roles) role-name)))
+             when include collect
              (list role-name description created user-count
                (format nil "~{~a~^, ~}" permissions) checkbox))))
     (input-form "delete-roles-form" "delete-roles-form" "/delete-roles" "post"
@@ -991,7 +1027,7 @@ file name and returns the path to the file with a trailing slash."
             (input-text "role" "Role:" t)
             (input-text "description" "Description:" t)
             (input-checkbox-list "permissions" "Permissions:"
-              (permissions-names))
+              (permission-names))
             (input-submit-button "Create")))))
 
 (defun start-web-server ()
@@ -1041,6 +1077,11 @@ file name and returns the path to the file with a trailing slash."
   (when (member *logged-in-role* (db-list-roles *guest*)
           :test 'equal)
     (a:d-remove-user-role *rbac* *guest* *logged-in-role*))
+  ;; Fix permissions for guest exclusive role (we want read only)
+  (loop with exclusive-role = (exclusive-role-for *guest*)
+    for permission in (exclude (permission-names) (list "read"))
+    when (has (role-permission-names exclusive-role) permission)
+    do (a:d-remove-role-permission *rbac* exclusive-role permission))
   ;; Add a public root directory resource
   (unless (a:get-id *rbac* *resources-table* "/")
     (a:d-add-resource *rbac* "/" :roles (list *public-role*)))
