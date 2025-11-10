@@ -607,7 +607,7 @@ file name and returns the path to the file with a trailing slash."
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
 (defmacro define-add-handler
-  ((handler-name uri &key (required-roles (list *admin-role*)))
+  ((handler-name uri &key required-roles)
     http-parameters
     (&rest validation-clauses)
     add-function
@@ -615,7 +615,7 @@ file name and returns the path to the file with a trailing slash."
   `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :post)
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
-       (session-user ',required-roles)
+       (session-user ',(or required-roles (list *admin-role*)))
 
        (let* ((param-specs ',http-parameters)
                (name-sym (cond
@@ -789,7 +789,7 @@ file name and returns the path to the file with a trailing slash."
     (values user allowed required-roles)))
 
 (defmacro define-list-handler
-  ((handler-name uri &key (required-roles (list *admin-role*)))
+  ((handler-name uri &key required-roles)
     http-parameters
     render-list-function
     list-count-function
@@ -798,7 +798,7 @@ file name and returns the path to the file with a trailing slash."
   `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :get)
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
-       (session-user ',required-roles)
+       (session-user ',(or required-roles (list *admin-role*)))
 
        (let* ((action (format nil "listing ~a" ',list-name))
                (handler (format nil "~(~a~)" ',handler-name))
