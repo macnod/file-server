@@ -607,7 +607,7 @@ file name and returns the path to the file with a trailing slash."
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
 (defmacro define-add-handler
-  ((handler-name uri &key (required-roles *admin-role*))
+  ((handler-name uri &key (required-roles (list *admin-role*)))
     http-parameters
     (&rest validation-clauses)
     add-function
@@ -789,7 +789,7 @@ file name and returns the path to the file with a trailing slash."
     (values user allowed required-roles)))
 
 (defmacro define-list-handler
-  ((handler-name uri &key (required-roles *admin-role*))
+  ((handler-name uri &key (required-roles (list *admin-role*)))
     http-parameters
     render-list-function
     list-count-function
