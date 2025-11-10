@@ -1000,7 +1000,7 @@ file name and returns the path to the file with a trailing slash."
   (setf
     h:*show-lisp-errors-p* t
     (h:acceptor-persistent-connections-p *http-server*) nil)
-  (u:log-it :info :in "start-web-server"
+  (u:log-it-pairs :info :in "start-web-server"
     :status "server started"
     :endpoint (format nil "http://localhost:~d" *http-port*))
   (h:start *http-server*))
