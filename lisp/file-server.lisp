@@ -149,7 +149,7 @@ system are removed from the RBAC database. The resources in the RBAC database
 should correspond exactly to the directories in the file system."
   (u:log-it-pairs :debug :in "sync-directories")
   (let* ((fs-dirs (fs-list-directories))
-          (db-dirs (resources))
+          (db-dirs (resource-names))
           (added (loop
                    for dir in fs-dirs
                    unless (db-directory-id dir)
@@ -705,7 +705,7 @@ file name and returns the path to the file with a trailing slash."
       "Parent directory must be absolute and end in a slash")
     ((u:directory-exists-p (u:join-paths *document-root* parent))
        "Parent directory not in file system")
-    ((not (has (resources) (concatenate 'string parent directory "/")))
+    ((not (has (resource-names) (concatenate 'string parent directory "/")))
       "Directory already exists")
     ((a:get-id *rbac* *users-table* user)
       (format nil "User '~a' doesn't exist" user))
