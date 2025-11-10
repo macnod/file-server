@@ -244,7 +244,7 @@ empty string."
 
 (defun render-pager (url current-page page-size element-count
                       &optional (link-count 5))
-  (u:log-it-pairs :debug :detail "render-pager"
+  (u:log-it-pairs :debug :in "render-pager"
     :url url
     :current-page current-page
     :page-size page-size
@@ -261,7 +261,7 @@ empty string."
                                       (< current-page 1)
                                       (> current-page page-count))
                                 (u:log-it-pairs :error
-                                  :detail "render-pager"
+                                  :in "render-pager"
                                   :status "current-page is out of bounds"
                                   :current-page current-page
                                   :first-page 1
