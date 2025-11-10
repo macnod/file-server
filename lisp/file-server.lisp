@@ -149,7 +149,7 @@ system are removed from the RBAC database. The resources in the RBAC database
 should correspond exactly to the directories in the file system."
   (u:log-it-pairs :debug :in "sync-directories")
   (let* ((fs-dirs (fs-list-directories))
-          (db-dirs (resouces))
+          (db-dirs (resources))
           (added (loop
                    for dir in fs-dirs
                    unless (db-directory-id dir)
