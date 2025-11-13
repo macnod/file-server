@@ -118,16 +118,19 @@ elements in EXCLUDE from REFERENCE-LIST. If EXCLUDE is a string, this function
 excludes the string from REFERENCE-LIST")
   (:method ((reference-list list) (exclude string))
     "Returns a list containing the elements of REFERENCE-LIST excluding
-EXCLUDE."
-  (remove-if
-    (lambda (s) (equal s exclude))
-    reference-list))
+the one that is equal to EXCLUDE."
+    (remove-if (lambda (s) (equal s exclude)) reference-list))
   (:method ((reference-list list) (exclude list))
     "Returns a list containing the elements of REFERENCE-LIST excluding
 all elements in EXCLUDE."
     (remove-if
       (lambda (s) (member s exclude :test 'equal))
       reference-list)))
+
+(defun exclude-regex (reference-list exclude)
+  "Returns a list of the elements of REFERENCE-LIST that don't match the
+EXCLUDE regular expression."
+  (remove-if (lambda (s) (re:scan exclude s)) reference-list))
 
 (defgeneric exclude-except (reference-list exclude exceptions)
   (:documentation "Returns a list containing the elements of REFERENCE-LIST
@@ -225,13 +228,16 @@ empty string."
           :disabled disabled)
         display))))
 
-(defun input-checkbox-list (name label values &key checked-states)
-  (let ((checkboxes (loop with states = (or checked-states
-                                          (mapcar (constantly nil) values))
+(defun input-checkbox-list (name label values &key checked disabled)
+  (let ((checkboxes (loop with checked-list = (or checked
+                                                (mapcar (constantly nil) values))
+                      and disabled-list = (or disabled
+                                            (mapcar (constantly nil) values))
                       for value in values
-                      for checked in states
+                      for check in checked-list
+                      for disable in disabled-list
                       for checkbox = (input-checkbox name value
-                                       :checked checked :value value)
+                                       :checked check :value value :disabled disable)
                       collect checkbox into html
                       finally (return (join-html html)))))
     (s:with-html-string

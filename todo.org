@@ -42,9 +42,9 @@
   - [X] Add a role
   - [X] Remove one or more roles
   - [ ] Add a role to a user
-  - [ ] Add a role to a directory
+  - [X] Add a role to a directory
   - [ ] Remove a role from a user
-  - [ ] Remove a role from a directory
+  - [X] Remove a role from a directory
   - [ ] Add a permission to a role
   - [ ] Remove a permission from a role
 - [ ] Directories and Files

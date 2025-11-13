@@ -498,13 +498,26 @@ file name and returns the path to the file with a trailing slash."
           (h:handle-static-file abs-path))))))
 
 (defun user-list-user-roles (user)
-  (let ((roles (exclude (db-list-roles user t) *logged-in-role*)))
-    (if (has roles (list *admin-role* (exclusive-role-for *admin*)))
-      (exclude roles (exclusive-role-for *admin*))
-      roles)))
+  (let ((roles (exclude-regex
+                 (exclude
+                   (user-roles user)
+                   (list *logged-in-role*))
+                 ":exclusive$")))
+    (if (equal roles (list *public-role*))
+      roles
+      (exclude roles *public-role*))))
+
+(defun render-edit-user-roles-link (user)
+  (let ((path (add-to-url-query "/edit-user-roles" "user" user))
+         (roles (user-list-user-roles user)))
+    (s:with-html-string
+      (:div :class :user-roles-cell
+        (:span (format nil "~{~a~^, ~}" roles))
+        (:a :href path (:img :src "/image?name=edit.png"
+                         :width "16px" :height "16px"))))))
 
 (defun render-user-list (page page-size)
-  (let ((headers (list "User" "Email" "Created" "Last Login" "Roles" ""))
+  (let ((headers (list "User" "Email" "Created" "Last Login" "Roles" " "))
          (rows (loop
                  with users = (a:list-users *rbac* page page-size)
                  and excluded = (list *system*)
@@ -515,12 +528,13 @@ file name and returns the path to the file with a trailing slash."
                  for email = (getf user :email)
                  for created = (readable-timestamp (getf user :created-at))
                  for last-login = (readable-timestamp (getf user :last-login))
-                 for roles = (when include (user-list-user-roles username))
+                 for roles = (when include
+                               (render-edit-user-roles-link username))
                  for checkbox = (input-checkbox "usernames" "" :value username
                                   :disabled (has fixed-users username))
                  when include
-                 collect (list username email created last-login
-                           (format nil "~{~a~^, ~}" roles) checkbox))))
+                 collect (list username email created last-login roles
+                           checkbox))))
     (input-form "delete-users-form" "delete-users-form" "/delete-users" "post"
       (s:with-html-string
         (:raw (render-table headers rows))
@@ -542,9 +556,7 @@ file name and returns the path to the file with a trailing slash."
          (rows (loop for row in rows
                  collect (loop for value in row
                            collect (s:with-html-string
-                                     (:td (:raw (if (stringp value)
-                                                  value
-                                                  (format nil "~a" value)))))
+                                     (:td (:raw (format nil "~a" value))))
                            into row-html
                            finally (return
                                      (s:with-html-string
@@ -561,6 +573,15 @@ file name and returns the path to the file with a trailing slash."
 
 (defun role-names ()
   (a:list-role-names *rbac* :page-size *max-page-size*))
+
+(defun role-names-non-system ()
+  (exclude
+    (role-names)
+    (list
+      *logged-in-role*
+      *system-role*
+      (exclusive-role-for *system*)
+      (exclusive-role-for *guest*))))
 
 (defun role-permission-names (role)
   (a:list-role-permission-names *rbac* role))
@@ -1086,6 +1107,54 @@ file name and returns the path to the file with a trailing slash."
       (role-names)
       (excluded-from-role-list))))
 
+(h:define-easy-handler (edit-user-roles-handler :uri "/edit-user-roles"
+                       :default-request-type :get)
+  ((roles-user :real-name "user"))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *admin*))
+    (u:log-it-pairs :debug :in "edit-user-roles-handler"
+      :user user
+      :allowed allowed
+      :required-roles required-roles
+      :roles-user roles-user)
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from edit-user-roles-handler "Fail"))
+    (page
+      (render-edit-user-roles-form roles-user)
+      :user user
+      :subtitle (format nil "Edit Roles for User ~a" roles-user))))
+
+(h:define-easy-handler (edit-user-roles-do-handler :uri "/edit-user-roles-do"
+                         :default-request-type :post)
+  ((target-user :real-name "user")
+    (target-roles :real-name "roles" :parameter-type '(list string)))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *admin-role*))
+    (u:log-it-pairs :debug :in "edit-user-roles-do-handler"
+      :user user
+      :required-roles required-roles
+      :allowed allowed
+      :target-user target-user
+      :target-roles target-roles)
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from edit-user-roles-do-handler "Forbidden"))
+    (let* ((existing-roles (user-roles target-user))
+            (to-add (set-difference target-roles existing-roles :test 'equal))
+            (to-remove (set-difference existing-roles target-roles :test 'equal)))
+      (u:log-it-pairs :debug :in "edit-user-roles-do-handler"
+        :existing-roles existing-roles
+        :to-add to-add
+        :to-remove to-remove)
+      ;; Add roles to the user
+      (loop for role in to-add do
+        (a:d-add-user-role *rbac* target-user role))
+      ;; Remove roles from user
+      (loop for role in to-remove do
+        (a:d-remove-user-role *rbac* target-user role))
+      (success-page user "Updated roles for user ~a." target-user))))
+
 (defun render-role-list (page page-size)
   (let ((headers (list "Role" "Description" "Created" "Users" "Permissions" ""))
          (rows
@@ -1137,7 +1206,46 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       "/edit-directory-roles-do" "post"
       (input-hidden "parent" parent)
       (input-hidden "directory" directory)
-      (input-checkbox-list "roles" "Roles: " roles :checked-states checked)
+      (input-checkbox-list "roles" "Roles: " roles :checked checked)
+      (input-submit-button "Update"))))
+
+(defun user-role-edit-disabled (user role)
+  (cond
+    ((equal (exclusive-role-for user) role) t)
+    ((equal role *public-role*) t)
+    ((and (equal role *admin-role*) (equal user *admin*)) t)
+    (t nil)))
+
+(defun render-edit-user-roles-form (user)
+  (let* ((roles (role-names-non-system))
+          (user-roles (user-roles user))
+          (checked (mapcar (lambda (r) (has user-roles r)) roles))
+          (disabled (mapcar
+                      (lambda (r) (user-role-edit-disabled user r))
+                      roles))
+          (role-states (loop for role in roles
+                         for check in checked
+                         for disable in disabled
+                         collect
+                         (list :role role :checked check :disabled disable)))
+          (sorted (sort role-states
+                    (lambda (a b)
+                      (string<
+                        (format nil "~a-~a-~a"
+                          (if (getf a :disabled) "a" "b")
+                          (if (getf a :checked) "a" "b")
+                          (getf a :role))
+                        (format nil "~a-~a-~a"
+                          (if (getf b :disabled) "a" "b")
+                          (if (getf b :checked) "a" "b")
+                          (getf b :role)))))))
+    (input-form "edit-user-roles" "edit-user-roles"
+      "/edit-user-roles-do" "post"
+      (input-hidden "user" user)
+      (input-checkbox-list "roles" "Roles: "
+        (mapcar (lambda (r) (getf r :role)) sorted)
+        :checked (mapcar (lambda (r) (getf r :checked)) sorted)
+        :disabled (mapcar (lambda (r) (getf r :disabled)) sorted))
       (input-submit-button "Update"))))
 
 (defun start-web-server ()

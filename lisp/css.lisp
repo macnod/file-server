@@ -90,7 +90,7 @@
            :transform "translateX(-50%)"
            :text-align "center")
 
-         ((:or .user-list .role-list .users-list .roles-list)
+         ((:or .user-list .roles-list .users-list .roles-list)
            :width "100%"
            :align-items "center"
            (table
@@ -100,7 +100,12 @@
              (th :text-align "left"
                :border-bottom "1px solid black")
              (td :text-align "left")
-             ("tr:nth-child(even)" :background-color "#f2f2f2"))
+             ("tr:nth-child(even)" :background-color "#f2f2f2")
+             (.user-roles-cell
+               (span :font-size "0.90rem")
+               (a :text-decoration "none"
+                 (img :margin-left "10px"))))
+
            (.pager
              :text-align "center"
              :display "flex"
@@ -109,7 +114,7 @@
              :gap "0.5rem"
              :font-size "0.95rem"))
 
-         ((:or .add-user .add-role .add-directory .edit-directory-roles)
+         ((:or .add-user .add-role .add-directory .edit-directory-roles .edit-user-roles)
            :display "grid"
            :align-items "start"
            :margin-top "1rem"
