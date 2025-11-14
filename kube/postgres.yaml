@@ -9,9 +9,9 @@ spec:
   selector:
     app: postgres-dev
   ports:
-    - port: 5435
+    - port: 5432
       targetPort: 5432
-      nodePort: 35435
+      nodePort: 30212
 ---
 apiVersion: v1
 kind: PersistentVolume

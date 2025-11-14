@@ -14,11 +14,11 @@ spec:
     - port: 3110
       name: http
       targetPort: 8080
-      nodePort: 33110
-    - port: 4006
+      nodePort: 30210
+    - port: 4005
       name: swank
       targetPort: 4005
-      nodePort: 34006
+      nodePort: 30211
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -38,7 +38,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server:0.96.25
+          image: macnod/file-server-dev:0.96.26
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -58,7 +58,7 @@ spec:
               value: 0.96.25
             # Database connection
             - name: DB_HOST
-              value: "postgres-service"
+              value: "postgres-dev-service"
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME

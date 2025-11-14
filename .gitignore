@@ -5,6 +5,7 @@ logs
 
 # Folders
 pg-data
+pg-data-dev
 
 # Emacs
 *~

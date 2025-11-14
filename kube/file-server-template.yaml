@@ -12,11 +12,11 @@ spec:
     - port: 3110
       name: http
       targetPort: 8080
-      nodePort: 33110
-    - port: 4006
+      nodePort: 30210
+    - port: 4005
       name: swank
       targetPort: 4005
-      nodePort: 34006
+      nodePort: 30211
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -54,9 +54,11 @@ spec:
           env:
             - name: FILE_MANAGER_VERSION
               value: 0.96.25
+            - name: FILE_MANAGER_ENVIRONMENT
+              value: $ENVIRONMENT
             # Database connection
             - name: DB_HOST
-              value: "postgres-service"
+              value: "postgres-dev-service"
             - name: DB_PORT
               value: "5432"
             - name: DB_NAME
