@@ -300,6 +300,9 @@ file name and returns the path to the file with a trailing slash."
          (roles (directory-roles path)))
     (u:log-it-pairs :debug :in "render-directory-listing"
       :status "list directories"
+      :user user
+      :path path
+      :abs-path abs-path
       :files files
       :subdirectories subdirs
       :access-list roles)
@@ -329,9 +332,10 @@ file name and returns the path to the file with a trailing slash."
                       :alt "Open directory" :title "Open directory"
                       :width 24 :height 24) name)
                   (:span dir-roles)
-                  (:a :href edit-roles-href :class "edit-roles-link"
-                    (:img :src image-edit :alt "Edit roles" :title "Edit roles"
-                      :width 16 :height 16)))))
+                  (when (a:user-allowed *rbac* user "write" path)
+                    (:a :href edit-roles-href :class "edit-roles-link"
+                      (:img :src image-edit :alt "Edit roles" :title "Edit roles"
+                        :width 16 :height 16))))))
             ;; Files
             (:ul :class "listing"
               (mapcar

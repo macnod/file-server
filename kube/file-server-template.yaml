@@ -18,48 +18,6 @@ spec:
       targetPort: 4005
       nodePort: 30102
 ---
-apiVersion: v1
-kind: Service
-metadata:
-  name: postgres-service
-  namespace: misc
-spec:
-  type: NodePort
-  selector:
-    app: file-server
-  ports:
-    - port: 5432
-      targetPort: 5432
-      nodePort: 30101
----
-apiVersion: v1
-kind: PersistentVolume
-metadata:
-  name: pg-pv
-  namespace: misc
-spec:
-  capacity:
-    storage: 100Mi
-  accessModes:
-    - ReadWriteOnce
-  hostPath:
-    path: /home/macnod/common-lisp/file-server/pg-data
-    type: Directory
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: pg-pvc
-  namespace: misc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Mi
-  volumeName: pg-pv
-  storageClassName: ""
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -130,45 +88,8 @@ spec:
           volumeMounts:
             - mountPath: /app
               name: file-server-volume
-        - name: postgres
-          image: postgres:16.10
-          lifecycle:
-            preStop:
-              exec:
-                command:
-                  - /bin/sh
-                  - c
-                  - pg_ctl stop -D /var/lib/postgresql/data -m fast -w -t 45
-          imagePullPolicy: Never
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
-          ports:
-            - containerPort: 5432
-          env:
-            - name: POSTGRES_DB
-              value: "fileserver"
-            - name: POSTGRES_USER
-              value: "fileserver"
-            - name: POSTGRES_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: file-server-secrets
-                  key: postgres-password
-          volumeMounts:
-            - mountPath: /var/lib/postgresql/data
-              name: pg-data-volume
-            - mountPath: /docker-entrypoint-initdb.d
-              name: init-sql-volume
       volumes:
         - name: file-server-volume
           hostPath:
             path: /home/macnod/common-lisp/file-server
-            type: Directory
-        - name: pg-data-volume
-          persistentVolumeClaim:
-            claimName: pg-pvc
-        - name: init-sql-volume
-          hostPath:
-            path: /home/macnod/common-lisp/file-server/db-init
             type: Directory

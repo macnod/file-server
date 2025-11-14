@@ -9,6 +9,7 @@ function usage {
     echo "macnod/file-server:{version}. The --version option is required."
     echo
     echo "Options:"
+    echo "  --env       The environment: prod or dev"
     echo "  --version   The version of the image to build, like 0.12."
     echo "  --no-cache  Don't use the cache at all when building the image."
     echo "  --help      Display this help screen."
@@ -23,6 +24,7 @@ function usage {
     fi
 }
 
+DEPENV=""
 VERSION=""
 NO_CACHE=false
 HELP=false
@@ -30,6 +32,10 @@ HELP=false
 # Parse arguments
 while [ $# -gt 0 ]; do
     case "$1" in
+        --env)
+            shift
+            DEPENV="$1"
+            ;;
         --version)
             shift
             VERSION="$1"
@@ -47,6 +53,12 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# Check if DEPENV is empty
+if [ -z "$DEPENV" ]; then
+    echo "Error: Envirionment is required. Use --env dev|prod"
+    exit 1
+fi
 
 # Check if VERSION is empty
 if [ -z "$VERSION" ]; then
