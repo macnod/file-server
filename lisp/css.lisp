@@ -88,7 +88,9 @@
            :left "50%"
            :bottom "20px"
            :transform "translateX(-50%)"
-           :text-align "center")
+           :text-align "center"
+           :font-family "mono"
+           :font-size "0.8rem")
 
          ((:or .user-list .roles-list .users-list .roles-list)
            :width "100%"
