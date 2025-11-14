@@ -4,6 +4,11 @@ FROM ubuntu:latest
 
 ENV DEBIAN_FRONTEND=noninteractive
 
+#
+# Install Roswell
+# 
+# BEGIN
+#
 ENV ROSWELL_REPO=https://github.com/roswell/roswell.git
 ENV ROSWELL_SRC_DIR=/roswell-src
 ENV ROSWELL_PREFIX=/roswell
@@ -36,6 +41,10 @@ WORKDIR /
 RUN rm -rf $ROSWELL_SRC_DIR
 RUN $ROSWELL setup
 
+#
+# END
+#
+
 # 3rd-party packages
 RUN $ROSWELL install postmodern && \
     $ROSWELL install uiop && \
@@ -50,14 +59,14 @@ RUN $ROSWELL install postmodern && \
     $ROSWELL install cl-csv && \
     $ROSWELL install cl-unicode
 
-# stable macnod packages
+# Stable macnod packages
 RUN $ROSWELL install macnod/dc-ds && \
     $ROSWELL install macnod/dc-dlist
 
-# changing macnod packages
+# Changing macnod packages
 ARG CACHEBUST=1
 RUN $ROSWELL install macnod/dc-eclectic && \
     $ROSWELL install macnod/rbac
 
-# code for file-server
-RUN $ROSWELL install .
+# This project
+RUN $ROSWELL install macnod/file-server/dev
