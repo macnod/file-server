@@ -38,7 +38,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server-dev:0.96.26
+          image: macnod/file-server-dev:0.96.27
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -56,6 +56,8 @@ spec:
           env:
             - name: FILE_MANAGER_VERSION
               value: 0.96.25
+            - name: FILE_MANAGER_ENVIRONMENT
+              value: dev
             # Database connection
             - name: DB_HOST
               value: "postgres-dev-service"
