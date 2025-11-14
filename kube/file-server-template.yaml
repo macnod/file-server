@@ -36,7 +36,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/{{IMAGE}}:{{VERSION}}
+          image: macnod/$IMAGE:$VERSION
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -53,7 +53,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: {{VERSION}}
+              value: 0.96.25
             # Database connection
             - name: DB_HOST
               value: "postgres-service"
