@@ -77,9 +77,11 @@ fi
 case "$DEPENV" in
     dev)
         DOCKERFILE="Dockerfile-dev"
+        IMAGE="file-server-dev"
         ;;
     prod)
         DOCKERFILE="Dockerfile"
+        IMAGE="file-server"
         ;;
     *)
         echo "Bad value for --env: $DEPENV"
@@ -88,13 +90,12 @@ case "$DEPENV" in
 esac
 
 if [ "$NO_CACHE" = true ]; then
-    docker build -f "$DOCKERFILE" \
-           --no-cache \
-           -t "macnod/file-server:$VERSION" \
-           -t "macnod/file-server:latest" .
+    CACHE_OPTION="--no-cache"
 else
-    docker build -f "$DOCKERFILE" \
-           --build-arg CACHEBUST=$(date +%s) \
-           -t "macnod/file-server:$VERSION" \
-           -t "macnod/file-server:latest" .
+    CACHE_OPTION="--build-arg CACHEBUST=$(date +%s)"
 fi
+
+docker build -f "$DOCKERFILE" \
+       $CACHE_OPTION \
+       -t "macnod/$IMAGE:$VERSION" \
+       -t "macnod/$IMAGE:latest" .

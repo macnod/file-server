@@ -1,5 +1,6 @@
 # secrets
 secrets.yaml
+secrets-dev.yaml
 logs
 
 # Folders
