@@ -24,18 +24,17 @@ function usage {
     fi
 }
 
-DEPENV=""
 VERSION=""
 NO_CACHE=false
 HELP=false
 
+# Read the word in the file './environment'. The word should be
+# prod or dev.
+read -r DEPENV < environment
+
 # Parse arguments
 while [ $# -gt 0 ]; do
     case "$1" in
-        --env)
-            shift
-            DEPENV="$1"
-            ;;
         --version)
             shift
             VERSION="$1"
@@ -56,7 +55,7 @@ done
 
 # Check if DEPENV is empty
 if [ -z "$DEPENV" ]; then
-    echo "Error: Envirionment is required. Use --env dev|prod"
+    echo "Error: Check the file ./environment. It should have 'dev' or 'prod'"
     exit 1
 fi
 
@@ -75,12 +74,27 @@ if [ $? -ne 0 ]; then
     exit 1;
 fi
 
+case "$DEPENV" in
+    dev)
+        DOCKERFILE="Dockerfile-dev"
+        ;;
+    prod)
+        DOCKERFILE="Dockerfile"
+        ;;
+    *)
+        echo "Bad value for --env: $DEPENV"
+        usage
+        ;;
+esac
+
 if [ "$NO_CACHE" = true ]; then
-    docker build --no-cache \
+    docker build -f "$DOCKERFILE" \
+           --no-cache \
            -t "macnod/file-server:$VERSION" \
            -t "macnod/file-server:latest" .
 else
-    docker build --build-arg CACHEBUST=$(date +%s) \
+    docker build -f "$DOCKERFILE" \
+           --build-arg CACHEBUST=$(date +%s) \
            -t "macnod/file-server:$VERSION" \
            -t "macnod/file-server:latest" .
 fi
