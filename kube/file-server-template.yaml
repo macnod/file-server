@@ -132,7 +132,7 @@ spec:
               name: file-server-volume
         - name: postgres
           image: postgres:16.10
-          lifecyle:
+          lifecycle:
             preStop:
               exec:
                 command:

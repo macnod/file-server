@@ -140,7 +140,7 @@ spec:
                 command:
                   - /bin/sh
                   - c
-                  - pg_ctl stop -D /var/lib/postgresql/data -m fast -w -t 45          
+                  - pg_ctl stop -D /var/lib/postgresql/data -m fast -w -t 45
           imagePullPolicy: Never
           securityContext:
             runAsUser: 1000

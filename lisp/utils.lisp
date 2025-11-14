@@ -136,8 +136,8 @@ EXCLUDE regular expression."
   "Returns a list of the elements of REFERENCE-LIST that that don't match the
 EXCLUDE regular expression. However, elements that match EXCEPTIONS are not
 excluded, even if they match EXCLUDE."
-  (remove-if (lambda (s) 
-               (and 
+  (remove-if (lambda (s)
+               (and
                  (not (member s exceptions :test 'equal))
                  (re:scan exclude s)))
     reference-list))
