@@ -132,6 +132,16 @@ all elements in EXCLUDE."
 EXCLUDE regular expression."
   (remove-if (lambda (s) (re:scan exclude s)) reference-list))
 
+(defun exclude-regex (reference-list exclude &optional exceptions)
+  "Returns a list of the elements of REFERENCE-LIST that that don't match the
+EXCLUDE regular expression. However, elements that match EXCEPTIONS are not
+excluded, even if they match EXCLUDE."
+  (remove-if (lambda (s) 
+               (and 
+                 (not (member s exceptions :test 'equal))
+                 (re:scan exclude s)))
+    reference-list))
+
 (defgeneric exclude-except (reference-list exclude exceptions)
   (:documentation "Returns a list containing the elements of REFERENCE-LIST
 that don't match the EXCLUDE regular expression and that don't match

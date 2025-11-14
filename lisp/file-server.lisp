@@ -343,7 +343,8 @@ file name and returns the path to the file with a trailing slash."
                            :width 24 :height 24)
                          (u:filename-only f))))
                 files))
-            (:raw (render-new-directory-form user path)))
+            (when (has (user-roles user) *logged-in-role*)
+              (:raw (render-new-directory-form user path))))
       :user user
       :subtitle "Files")))
 
@@ -448,7 +449,7 @@ file name and returns the path to the file with a trailing slash."
 
       ;; Is user authorized?
       (unless allowed
-        (u:log-it-pairs :info :in "file-handler"
+        (u:log-it-pairs :info :in "files-handler"
           :status "authorization failed"
           :old-user user
           :new-user *guest*)
@@ -456,7 +457,7 @@ file name and returns the path to the file with a trailing slash."
 
       ;; Is the method GET?
       (unless (eql method :get)
-        (u:log-it-pairs :warn :in "file-handler"
+        (u:log-it-pairs :warn :in "files-handler"
           :status "method not allowed"
           :user user :method method :path path)
         (setf (h:return-code*) h:+http-method-not-allowed+)
@@ -470,24 +471,24 @@ file name and returns the path to the file with a trailing slash."
           :status "path not found" :path path :abs-path abs-path :user user)
         (setf (h:return-code*) h:+http-not-found+)
         (return-from files-handler "Not Found"))
-      (u:log-it-pairs :debug :in "file-handler"
+      (u:log-it-pairs :debug :in "files-handler"
         :status "file or directory exists"
         :file-or-directory abs-path)
 
       ;; Does the user have access to the path?
       (unless (has-read-access user path-only)
-        (u:log-it-pairs :info :in "file-handler"
+        (u:log-it-pairs :info :in "files-handler"
           :status "access denied"
           :path path :path-only path-only :user user)
         (setf (h:return-code h:*reply*) h:+http-forbidden+)
         (return-from files-handler "Forbidden"))
-      (u:log-it-pairs :info :in "file-handler"
+      (u:log-it-pairs :info :in "files-handler"
         :status "access granted" :user user :path path-only)
 
       ;; Access OK
       (if (eql (u:path-type abs-path) :directory)
         (progn
-          (u:log-it-pairs :debug :in "file-handler"
+          (u:log-it-pairs :debug :in "files-handler"
             :status "path is a directory"
             :path path)
           (render-directory-listing user path abs-path))
@@ -502,7 +503,8 @@ file name and returns the path to the file with a trailing slash."
                  (exclude
                    (user-roles user)
                    (list *logged-in-role*))
-                 ":exclusive$")))
+                 ":exclusive$"
+                 nil)))
     (if (equal roles (list *public-role*))
       roles
       (exclude roles *public-role*))))
@@ -574,14 +576,16 @@ file name and returns the path to the file with a trailing slash."
 (defun role-names ()
   (a:list-role-names *rbac* :page-size *max-page-size*))
 
-(defun role-names-non-system ()
-  (exclude
-    (role-names)
-    (list
-      *logged-in-role*
-      *system-role*
-      (exclusive-role-for *system*)
-      (exclusive-role-for *guest*))))
+(defun role-names-non-system (user)
+  (let ((roles (exclude
+                 (role-names)
+                 (list
+                   *logged-in-role*
+                   *system-role*
+                   (exclusive-role-for *system*)
+                   (exclusive-role-for *guest*))))
+         (user-exclusive (exclusive-role-for user)))
+    (exclude-regex roles ":exclusive$" (list user-exclusive))))
 
 (defun role-permission-names (role)
   (a:list-role-permission-names *rbac* role))
@@ -617,10 +621,23 @@ file name and returns the path to the file with a trailing slash."
 
 (defun role-options (user parent)
   (let* ((user-roles (user-roles user))
-          (parent-roles (resource-roles parent))
-          (exceptions (list (exclusive-role-for user)))
+          (system-roles (list *system-role*
+                          (exclusive-role-for *system*)
+                          (exclusive-role-for *guest*)
+                          *logged-in-role*))
+          (parent-roles (if (or (equal parent "/")
+                              (has (resource-roles parent) *public-role*))
+                          (exclude (role-names) system-roles)
+                          (resource-roles parent)))
+          (exceptions (if (equal user *admin*)
+                        system-roles
+                        (append system-roles
+                          (exclude-regex (role-names) ":exclusive$"
+                            (list (exclusive-role-for user))))))
           (roles (if (has parent-roles "public")
-                   user-roles
+                   (if (equal user *admin*)
+                     parent-roles
+                     user-roles)
                    (intersection parent-roles user-roles :test 'equal))))
     (u:log-it-pairs :debug :in "role-options"
       :user user
@@ -630,13 +647,12 @@ file name and returns the path to the file with a trailing slash."
       :roles roles)
     (if (has user-roles *admin-role*)
       roles
-      (exclude-except roles ":exclude$" exceptions))))
+      (exclude-except roles ":exclusive$" exceptions))))
 
 (defun render-new-directory-form (user parent)
   (input-form "add-directory" "add-directory" "/add-directory" "post"
     (input-text "directory" "Directory Name (no slashes):" t)
     (input-checkbox-list "roles" "Roles: " (role-options user parent))
-    (input-hidden "user" user)
     (input-hidden "parent" parent)
     (input-submit-button "Create")))
 
@@ -750,12 +766,18 @@ file name and returns the path to the file with a trailing slash."
   "role")
 
 (define-add-handler (add-directory-handler "/add-directory"
-                      :required-roles (list *logged-in-role*))
-  (directory parent user
+                      :required-roles ("logged-in"))
+  (directory
+    parent
     (new-roles :real-name "roles" :parameter-type '(list string)))
   (((not (re:scan "/" directory)) "Directory has slashes")
     ((or (equal parent "/") (re:scan "^/.+/$" parent))
       "Parent directory must be absolute and end in a slash")
+    ((re:scan "^[-a-zA-Z0-9_]+$" directory)
+      (format nil "~{~a~}"
+        (list
+          "Directory name '" directory "' is invalid. "
+          "Use only letters, numbers, hyphens, and underscores.")))
     ((u:directory-exists-p (u:join-paths *document-root* parent))
        "Parent directory not in file system")
     ((not (has (resource-names) (concatenate 'string parent directory "/")))
@@ -769,6 +791,7 @@ file name and returns the path to the file with a trailing slash."
                            (u:join-paths *document-root* resource) "/"))
           (all-roles (cons (format nil "~a:exclusive" user) new-roles)))
     (u:log-it-pairs :debug :in "add-directory-handler"
+      :user user
       :resource resource
       :absolute-path absolute-path
       :all-roles all-roles)
@@ -1217,7 +1240,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
     (t nil)))
 
 (defun render-edit-user-roles-form (user)
-  (let* ((roles (role-names-non-system))
+  (let* ((roles (role-names-non-system user))
           (user-roles (user-roles user))
           (checked (mapcar (lambda (r) (has user-roles r)) roles))
           (disabled (mapcar

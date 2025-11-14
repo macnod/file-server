@@ -77,9 +77,10 @@ spec:
       labels:
         app: file-server
     spec:
+      terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server:0.96.21
+          image: macnod/file-server:0.96.23
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -96,7 +97,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: 0.96.21
+              value: 0.96.23
             # Database connection
             - name: DB_HOST
               value: "postgres-service"
@@ -133,6 +134,13 @@ spec:
               name: file-server-volume
         - name: postgres
           image: postgres:16.10
+          lifecyle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - c
+                  - pg_ctl stop -D /var/lib/postgresql/data -m fast -w -t 45          
           imagePullPolicy: Never
           securityContext:
             runAsUser: 1000

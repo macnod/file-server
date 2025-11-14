@@ -75,6 +75,7 @@ spec:
       labels:
         app: file-server
     spec:
+      terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
           image: macnod/file-server:{{VERSION}}
@@ -131,6 +132,13 @@ spec:
               name: file-server-volume
         - name: postgres
           image: postgres:16.10
+          lifecyle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - c
+                  - pg_ctl stop -D /var/lib/postgresql/data -m fast -w -t 45
           imagePullPolicy: Never
           securityContext:
             runAsUser: 1000
