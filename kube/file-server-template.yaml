@@ -36,7 +36,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server:{{VERSION}}
+          image: macnod/{{IMAGE}}:{{VERSION}}
           imagePullPolicy: Never
           command: ["ros"]
           args:
