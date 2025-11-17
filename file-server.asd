@@ -10,7 +10,8 @@
                 :spinneret
                 :jose
                 :lass
-                :dc-ds)
+                :dc-ds
+                :postmodern)
   :serial t
   :components ((:module "lisp"
                  :components ((:file "file-server-package")

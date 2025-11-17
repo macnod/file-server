@@ -27,6 +27,12 @@
 (defparameter *roles-table* "roles")
 (defparameter *resources-table* "resources")
 
+;; User default settings
+(defparameter *default-user-settings*
+  '(:setting-1 (:type "discreet" :default "value-1")
+     :setting-2 (:type "discreet" :default "value-2")
+     :setting-3 "value-3"))
+
 ;; JWT Secret
 (defparameter *jwt-secret*
   (b:string-to-octets (u:getenv "JWT_SECRET" :default "32-char secret")))
@@ -226,14 +232,10 @@ file name and returns the path to the file with a trailing slash."
             (list
               (:li (:a :href "/list-users" "list users"))
               (:li (:a :href "/list-roles" "list roles"))))
-          (if user
-            (:li (:a :href "/logout"
+          (if (and user (not (equal user *guest*)))
+            (:li (:a :href "/settings"
                    (:img :src "/image?name=user.png")
-                   (:span :class "user" user)
-                   (:span :class "login"
-                     (if (equal user *guest*)
-                       "[log in]"
-                       "[log out]"))))
+                   (:span :class "user" user)))
             (unless (equal subtitle "Log In")
               (:li (:a :href "/logout" "log in")))))))))
 
@@ -369,26 +371,57 @@ file name and returns the path to the file with a trailing slash."
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
     (u:timestamp-string)))
 
+(defun render-login-form (&key error-message redirect)
+  (page
+    (input-form "login-form" "login-form" "/login-do" "post"
+      (when error-message (form-text error-message :class "error-message"))
+      (input-hidden "redirect" redirect)
+      (input-text "Username: " :required t)
+      (input-password :required t)
+      (input-submit-button "Log In"))))
+
 (h:define-easy-handler (login-handler :uri "/login")
-  (username password error redirect)
+  (error-message redirect)
   (setf (h:content-type*) "text/html")
   (u:log-it-pairs :debug :in "login-handler"
-    :username username
-    :error error
+    :error error-message
     :redirect redirect)
   (when (zerop (length redirect))
     (setf redirect nil))
-  (cond
-    ((and (not error) (h:session-value :jwt-token))
-      (u:log-it-pairs :debug :in "login-handler"
-        :status "jwt-token is present, redirecting")
-      (h:redirect (or redirect "/files") :protocol :https))
-    ((and (not error) username password)
-      (u:log-it-pairs :debug :in "login-handler"
-        :status "login attempt"
-        :user username)
-      (let ((user-id (db-user-id username password)))
-        (if user-id
+  (render-login-form :error-message error-message :redirect redirect))
+
+(h:define-easy-handler (login-do-handler :uri "/login-do" :default-request-type :post)
+  (username password confirm-password redirect)
+  (setf (h:content-type*) "text/html")
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *public-role*))
+    (u:log-it-pairs :debug :in "login-do-handler"
+      :user user
+      :allowed allowed
+      :required-roles required-roles
+      :username username
+      :redirect redirect)
+    (let (errors)
+      (when (zerop (length username))
+        (push "Username is required." errors))
+      (when (zerop (length password))
+        (push "Password is required." errors))
+      (when (zerop (length confirm-password))
+        (push "Password confirmation is required." errors))
+      (when (not (equal password confirm-password))
+        (push "Password and confirmation do not match." errors))
+      (when errors
+        (setf (h:return-code*) h:+http-bad-request+)
+        (return-from login-do-handler
+          (error-page-list :info "login-do-handler"
+            (format nil "logging in '~a'" username)
+            *guest*
+            "There were errors with your submission"
+            errors
+            (list :username username :redirect redirect)))))
+
+    (let ((user-id (db-user-id username password)))
+      (if user-id
           (let ((token (issue-jwt user-id)))
             (u:log-it-pairs :info :in "login-handler"
               :status "login successful"
@@ -408,15 +441,15 @@ file name and returns the path to the file with a trailing slash."
     (t
       (page
         (s:with-html-string
-          (:div :id "login-form"
+          (:form :id "login" :action "/login" :method "post"
             (when error (:p (:i error)))
-            (:form :id "login" :action "/login" :method "post"
-              (:input :type "hidden" :name "redirect" :value redirect)
-              (:input :type "text" :name "username" :placeholder "Username"
-                :required t)
-              (:input :type "password" :name "password" :placeholder "Password"
-                :required t)
-              (:button :type "submit" "Log In"))))
+            (:input :type "hidden" :name "redirect" :value redirect)
+            (:input :type "text" :name "username" :placeholder "Username"
+              :required t)
+            (:input :type "password" :name "password" :placeholder "Password"
+              :required t)
+            (:button :type "submit" "Log In")))
+        (input-form "login-form" "login-form" "/login"
         :subtitle "Log In"))))
 
 (h:define-easy-handler (logout :uri "/logout") (redirect)
@@ -618,10 +651,9 @@ file name and returns the path to the file with a trailing slash."
 (defun render-new-user-form ()
   (let ((roles (regular-roles)))
     (input-form "add-user" "add-user" "/add-user" "post"
-      (input-text "username" "Username:" t)
-      (input-text "email" "Email:" t)
-      (input-text "password" "Password:" t t)
-      (input-text "password-verification" "Password Verification" t t)
+      (input-text "Username:" :required t)
+      (input-text "Email:" :required t)
+      (input-password :required t)
       (input-checkbox-list "roles" "Roles:" roles)
       (input-submit-button "Create"))))
 
@@ -657,18 +689,52 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-new-directory-form (user parent)
   (input-form "add-directory" "add-directory" "/add-directory" "post"
-    (input-text "directory" "Directory Name (no slashes):" t)
+    (input-text "Directory Name (no slashes):" :required t :name "directory")
     (input-checkbox-list "roles" "Roles: " (role-options user parent))
     (input-hidden "parent" parent)
     (input-submit-button "Create")))
 
-(defun error-page (action user error-description &rest params)
-  (let* ((err-desc (apply #'format
-                     (append (list nil error-description) params)))
-         (err (format nil "Error while ~a: ~a" action err-desc)))
-    (u:log-it-pairs :error :in "error-page"
-      :status err :user (or user "(unknown)"))
-    (page (s:with-html-string (:p err)) :subtitle "Error" :user user)))
+(defun error-page (log-level in action user logging-list error-description
+                    &rest params)
+  (let* ((desc (apply #'format
+                 (append (list nil error-description) params)))
+          (message (format nil "Error while ~a: ~a" action desc))
+          (body (s:with-html-string
+                  (:div :class "error"
+                    (:p :class "error-description" message))))
+          (logs (append
+                  (list log-level
+                    :in in
+                    :action action
+                    :user user
+                    :status message)
+                  logging-list)))
+    (apply #'u:log-it-pairs logs)
+    (page body :subtitle "Error" :user (or user *guest*))))
+
+(defun error-page-list (log-level in action user error-description
+                         error-list logging-list)
+  (let* ((desc (format nil "Error while ~a~a" action (if error-list ":" ".")))
+          (body (s:with-html-string
+                  (:div :class "error"
+                    (:p :class "error-description" desc)
+                    (when error-list
+                      (:ul :class "error-list"
+                        (loop for param in error-list
+                          collect (:li :class "error-item" param)))))))
+          (logs (append (list
+                          log-level
+                          :in in
+                          :action action
+                          :user user
+                          :status desc
+                          :error-description error-description
+                          :error-list error-list)
+                  logging-list)))
+
+    (apply #'u:log-it-pairs logs)
+    (page body :subtitle "Error" :user user)))
+
 
 (defun success-page (user description &rest params)
   (let* ((desc (apply #'format
@@ -721,49 +787,49 @@ file name and returns the path to the file with a trailing slash."
 
          ;; Authorization
          (unless allowed
-           (u:log-it-pairs :error :in handler
-             :status "Authorization failed"
-             :user user
-             :allowed allowed
-             :required-roles required-roles)
+           (setf (h:return-code*) h:+http-forbidden+)
            (return-from ,handler-name
-             (error-page action user "Authorization failed")))
+             (error-page :warn handler
+               action
+               user
+               (list :user user :allowed allowed :required-roles required-roles)
+               "Authorization failed")))
 
          ;; Validation
          ,@(loop for (test msg) in validation-clauses
              collect `(unless ,test
                         (return-from ,handler-name
-                          (error-page action user ,msg))))
+                          (error-page :warn handler
+                            action user nil ,msg))))
 
          ;; Add the element
          (handler-case
            (let ((id (handler-case
                        ,add-function
                        (error (e)
-                         (u:log-it-pairs :error :in handler
-                           :status (format nil "~a" e))
                          (return-from ,handler-name
-                           (error-page action user
-                             (format nil "~a" e)))))))
+                           (error-page :error handler
+                             action user nil (format nil "~a" e)))))))
              (unless id
-               (u:log-it-pairs :error :in handler
-                 :status (format nil "Failed to add ~a '~a'"
-                           ,element-name name-param))
                (return-from ,handler-name
-                 (error-page action user
+                 (error-page :error handler
+                   action user nil
                    "Failed to add ~a '~a'" ,element-name name-param)))
              (success-page user "Success ~a." action))
            (error (e)
-             (error-page action user e)))))))
+             (error-page :error handler action user nil (format nil "~a" e))))))))
 
 (define-add-handler (add-user-handler "/add-user")
-  (username email password password-verification
+  (username email password confirm-password
     (new-roles :real-name "roles" :parameter-type '(list string)))
-  (((equal password password-verification) "Passwords don't match"))
+  (((equal password confirm-password) "Passwords don't match"))
+  (add-user-action username password new-roles email)
+  "user")
+
+(defun add-user-action (username password new-roles email)
   (a:d-add-user *rbac* username password
     :roles new-roles
-    :email email)
-  "user")
+    :email email))
 
 (define-add-handler (add-role-handler "/add-role")
   (role description (permissions :parameter-type '(list string)))
@@ -869,6 +935,21 @@ file name and returns the path to the file with a trailing slash."
       :allowed allowed)
     (values user allowed required-roles)))
 
+(defun login (username password)
+  (let ((user-id (db-user-id username password)))
+    (if user-id
+      (let ((token (issue-jwt user-id)))
+        (u:log-it-pairs :info :in "login"
+          :status "login successful" :user username)
+        (h:start-session)
+        (setf (h:session-value :jwt-token) token))
+      (progn
+        (h:delete-session-value :jwt-token)
+        (u:log-it-pairs :warn :in "login"
+          :status "login failed" :user username)
+        nil))))
+
+
 (defmacro define-list-handler
   ;; *admin-role* is not available during compilation, we we're using
   ;; its value directly here.
@@ -904,22 +985,21 @@ file name and returns the path to the file with a trailing slash."
 
          ;; Authorization
          (unless allowed
-           (u:log-it-pairs :error :in handler
-             :status "Authorization failed"
-             :user user
-             :allowed allowed
-             :required-roles required-roles)
            (return-from ,handler-name
-             (error-page action user "Authorization failed")))
+             (error-page :warn handler action user
+               (list :allowed allowed :required-roles required-roles)
+               "Authorization failed")))
 
          ;; Is the method GET?
          (unless (eql (h:request-method*) :get)
-           (u:log-it-pairs :warn :in handler
-             :status "HTTP method not supported"
-             :user user
-             :method (h:request-method*))
            (return-from ,handler-name
-             (error-page action user "Method not allowed")))
+             (error-page :warn handler
+               action user
+               (list :method (h:request-method*)
+                 :allowed allowed
+                 :reason "HTTP method not supported"
+                 :required-roles required-roles)
+               "Method not allowed")))
 
          ;; Assemble page
          (page
@@ -1094,7 +1174,13 @@ file name and returns the path to the file with a trailing slash."
       ;; Are all the specified roles accessible to the user?
       (when unknown-roles
         (return-from edit-directory-roles-do-helper
-          (error-page "editing directory roles" user
+          (error-page :error "edit-directory-roles-do-helper"
+            "editing directory roles" user
+            (list
+              :parent-roles parent-roles
+              :user-roles user-roles
+              :allowed-roles allowed-roles
+              :unknown-roles unknown-roles)
             "One or more roles are inaccessible or don't exist: ~{~a~^, ~}"
             unknown-roles)))
 
@@ -1212,8 +1298,8 @@ file name and returns the path to the file with a trailing slash."
 (defun render-new-role-form ()
   (s:with-html-string
     (:raw (input-form "add-role" "add-role" "/add-role" "post"
-            (input-text "role" "Role:" t)
-            (input-text "description" "Description:" t)
+            (input-text "Role:" :required t)
+            (input-text "Description:" :required t)
             (input-checkbox-list "permissions" "Permissions:"
               (permission-names))
             (input-submit-button "Create")))))
@@ -1276,6 +1362,43 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         :checked (mapcar (lambda (r) (getf r :checked)) sorted)
         :disabled (mapcar (lambda (r) (getf r :disabled)) sorted))
       (input-submit-button "Update"))))
+
+(h:define-easy-handler (settings-handler :uri "/settings"
+                         :default-request-type :get)
+  ()
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *logged-in-role*))
+    (u:log-it-pairs :debug :in "settings-handler"
+      :user user
+      :allowed allowed
+      :required-roles required-roles)
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from settings-handler "Forbidden"))
+    (let ((settings (a:with-rbac (*rbac*)
+                      (db:query "select
+                                   us.id,
+                                   us.setting_key as setting,
+                                   us.setting_value as value
+                                 from user_settings us
+                                 join users u on us.user_id = u.id
+                                 where u.username = $1"
+                        user
+                        :alists))))
+      (page
+        (input-form "settings-form" "settings-form" "/settings-do" "post"
+          (loop for (serialized-key . serialized-value) in settings
+            for key = (format nil "~(~a~)" serialized-key)
+            for value = (read-from-string serialized-value)
+            collect (input-text key) into fields
+            finally (return (join-html fields)))
+          (input-password)
+          (input-submit-button "Apply Changes")
+          (s:with-html-string
+            (:div :class "logout-link"
+              (:a :href "/logout" "Log Out"))))
+        :user user
+        :subtitle "Settings"))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor

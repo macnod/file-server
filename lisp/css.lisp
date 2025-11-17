@@ -116,7 +116,14 @@
              :gap "0.5rem"
              :font-size "0.95rem"))
 
-         ((:or .add-user .add-role .add-directory .edit-directory-roles .edit-user-roles)
+         ((:or
+            .add-user
+            .add-role
+            .add-directory
+            .edit-directory-roles
+            .edit-user-roles
+            .settings-form
+            .login-form)
            :display "grid"
            :align-items "start"
            :margin-top "1rem"
@@ -132,14 +139,18 @@
                :margin-right "0.5em")
              (.textinput
                :grid-column "2"
-               :width "50%"))
+               :width "10rem"))
            (.checkbox-group
              :grid-column "2")
            (.button-container
              :grid-column "1 / -1"
              :justify-self "center"
              (.submit-button
-               :margin-top "1rem")))
+               :margin-top "1rem"))
+           (.logout-link
+             :grid-column "1 / -1"
+             :margin-top "2.0em"
+             :justify-self "center"))
 
          ((:or .delete-users-form .delete-roles-form)
            :width "100%"
