@@ -254,7 +254,7 @@ empty string."
         :name name
         :class (add-to-class class "text-input")
         :required required
-        :placeholder placeholder)))))
+        :placeholder placeholder))))
 
 (defun input-password (&key required class)
   (s:with-html-string
