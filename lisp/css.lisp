@@ -92,7 +92,7 @@
            :font-family "mono"
            :font-size "0.8rem")
 
-         ((:or .user-list .roles-list .users-list .roles-list)
+         ((:or .user-list .roles-list .users-list .roles-list .role-users-list)
            :width "100%"
            :align-items "center"
            (table
@@ -119,6 +119,7 @@
          ((:or
             .add-user
             .add-role
+            .add-role-user
             .add-directory
             .edit-directory-roles
             .edit-user-roles
@@ -137,11 +138,20 @@
                :width "20rem"
                :text-align "right"
                :margin-right "0.5em")
-             (.textinput
+             (.text-input
                :grid-column "2"
-               :width "10rem"))
-           (.checkbox-group
-             :grid-column "2")
+               :width "15rem"))
+           (.input-checkbox-list
+             :display "flex"
+             :flex-direction "column"
+             :align-items "flex-start"
+             :grid-column "2"
+             (label
+               :display "flex"
+               :align-items "center"
+               :margin "0"
+               :gap "0.25rem"
+               :width "auto"))
            (.button-container
              :grid-column "1 / -1"
              :justify-self "center"

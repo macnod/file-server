@@ -272,30 +272,47 @@ empty string."
   (s:with-html-string
     (:input :type "hidden" :name name :value value)))
 
-(defun input-checkbox (name display &key checked value disabled)
+(defun input-checkbox (label &key
+                        (name (label-to-name label))
+                        checked
+                        value
+                        disabled
+                        class)
   (s:with-html-string
-    (:div :class "checkbox"
+    (:div :class "form-group"
       (:label
         (:input :type "checkbox" :name name :checked checked :value value
+          :class (add-to-class class "input-checkbox")
           :disabled disabled)
-        display))))
+        label))))
 
-(defun input-checkbox-list (name label values &key checked disabled)
-  (let ((checkboxes (loop with checked-list = (or checked
-                                                (mapcar (constantly nil) values))
-                      and disabled-list = (or disabled
-                                            (mapcar (constantly nil) values))
+(defun input-checkbox-list (label values &key
+                             class
+                             (name (label-to-name label))
+                             (checked (mapcar (constantly nil) values))
+                             (disabled (mapcar (constantly nil) values)))
+  (unless (= (length checked) (length values))
+    (error "Length of CHECKED list must equal length of VALUES list"))
+  (unless (= (length disabled) (length values))
+    (error "Length of DISABLED list must equal length of VALUES list"))
+  (let ((checkboxes (loop
                       for value in values
-                      for check in checked-list
-                      for disable in disabled-list
-                      for checkbox = (input-checkbox name value
-                                       :checked check :value value :disabled disable)
+                      for check in checked
+                      for disable in disabled
+                      for checkbox = (s:with-html-string
+                                       (:label
+                                         (:input :type "checkbox"
+                                           :name name
+                                           :checked check
+                                           :disabled disable
+                                           :value value)
+                                         value))
                       collect checkbox into html
                       finally (return (join-html html)))))
     (s:with-html-string
       (:div :class "form-group"
         (:label label)
-        (:div :class "checkbox-group"
+        (:div :class (add-to-class class "input-checkbox-list")
           (:raw checkboxes))))))
 
 (defun input-form (id class action method &rest fields)

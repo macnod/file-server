@@ -336,7 +336,7 @@ file name and returns the path to the file with a trailing slash."
                       :alt "Open directory" :title "Open directory"
                       :width 24 :height 24) name)
                   (:span dir-roles)
-                  (when (a:user-allowed *rbac* user "write" path)
+                  (when (a:user-allowed *rbac* user "update" path)
                     (:a :href edit-roles-href :class "edit-roles-link"
                       (:img :src image-edit :alt "Edit roles" :title "Edit roles"
                         :width 16 :height 16))))))
@@ -377,7 +377,7 @@ file name and returns the path to the file with a trailing slash."
       (when error-message (form-text error-message :class "error-message"))
       (input-hidden "redirect" redirect)
       (input-text "Username: " :required t)
-      (input-password :required t)
+      (input-text "Password: " :required t :is-password t)
       (input-submit-button "Log In"))))
 
 (h:define-easy-handler (login-handler :uri "/login")
@@ -391,7 +391,7 @@ file name and returns the path to the file with a trailing slash."
   (render-login-form :error-message error-message :redirect redirect))
 
 (h:define-easy-handler (login-do-handler :uri "/login-do" :default-request-type :post)
-  (username password confirm-password redirect)
+  (username password redirect)
   (setf (h:content-type*) "text/html")
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *public-role*))
@@ -406,10 +406,6 @@ file name and returns the path to the file with a trailing slash."
         (push "Username is required." errors))
       (when (zerop (length password))
         (push "Password is required." errors))
-      (when (zerop (length confirm-password))
-        (push "Password confirmation is required." errors))
-      (when (not (equal password confirm-password))
-        (push "Password and confirmation do not match." errors))
       (when errors
         (setf (h:return-code*) h:+http-bad-request+)
         (return-from login-do-handler
@@ -422,35 +418,22 @@ file name and returns the path to the file with a trailing slash."
 
     (let ((user-id (db-user-id username password)))
       (if user-id
-          (let ((token (issue-jwt user-id)))
-            (u:log-it-pairs :info :in "login-handler"
-              :status "login successful"
-              :user username
-              :redirect (or redirect "/files"))
-            (h:start-session)
-            (setf (h:session-value :jwt-token) token)
-            (h:redirect (or redirect "/files") :protocol :https))
-          (progn
-            (u:log-it-pairs :warn :in "login-handler"
-              :status "login failed"
-              :username username
-              :redirect (add-to-url-query "/login" "redirect" redirect))
-            (h:delete-session-value :jwt-token)
-            (h:redirect (add-to-url-query "/login" "redirect" redirect)
-              :protocol :https)))))
-    (t
-      (page
-        (s:with-html-string
-          (:form :id "login" :action "/login" :method "post"
-            (when error (:p (:i error)))
-            (:input :type "hidden" :name "redirect" :value redirect)
-            (:input :type "text" :name "username" :placeholder "Username"
-              :required t)
-            (:input :type "password" :name "password" :placeholder "Password"
-              :required t)
-            (:button :type "submit" "Log In")))
-        (input-form "login-form" "login-form" "/login"
-        :subtitle "Log In"))))
+        (let ((token (issue-jwt user-id)))
+          (u:log-it-pairs :info :in "login-handler"
+            :status "login successful"
+            :user username
+            :redirect (or redirect "/files"))
+          (h:start-session)
+          (setf (h:session-value :jwt-token) token)
+          (h:redirect (or redirect "/files") :protocol :https))
+        (progn
+          (u:log-it-pairs :warn :in "login-handler"
+            :status "login failed"
+            :username username
+            :redirect (add-to-url-query "/login" "redirect" redirect))
+          (h:delete-session-value :jwt-token)
+          (h:redirect (add-to-url-query "/login" "redirect" redirect)
+            :protocol :https))))))
 
 (h:define-easy-handler (logout :uri "/logout") (redirect)
   (h:delete-session-value :jwt-token)
@@ -571,7 +554,9 @@ file name and returns the path to the file with a trailing slash."
                  for last-login = (readable-timestamp (getf user :last-login))
                  for roles = (when include
                                (render-edit-user-roles-link username))
-                 for checkbox = (input-checkbox "usernames" "" :value username
+                 for checkbox = (input-checkbox "" 
+                                  :name "usernames" 
+                                  :value username
                                   :disabled (has fixed-users username))
                  when include
                  collect (list username email created last-login roles
@@ -635,6 +620,12 @@ file name and returns the path to the file with a trailing slash."
 (defun user-roles (user)
   (a:list-user-role-names *rbac* user :page-size *max-page-size*))
 
+(defun immutable-user-roles (user)
+  (list *logged-in-role* *public-role* (exclusive-role-for user)))
+
+(defun mutable-user-roles (user)
+  (exclude (user-roles user) (immutable-user-roles user)))
+
 (defun regular-user-roles (user)
   (a:list-user-role-names-regular *rbac* user :page-size *max-page-size*))
 
@@ -654,7 +645,7 @@ file name and returns the path to the file with a trailing slash."
       (input-text "Username:" :required t)
       (input-text "Email:" :required t)
       (input-password :required t)
-      (input-checkbox-list "roles" "Roles:" roles)
+      (input-checkbox-list "Roles:" roles)
       (input-submit-button "Create"))))
 
 (defun role-options (user parent)
@@ -690,7 +681,7 @@ file name and returns the path to the file with a trailing slash."
 (defun render-new-directory-form (user parent)
   (input-form "add-directory" "add-directory" "/add-directory" "post"
     (input-text "Directory Name (no slashes):" :required t :name "directory")
-    (input-checkbox-list "roles" "Roles: " (role-options user parent))
+    (input-checkbox-list "Roles:" (role-options user parent))
     (input-hidden "parent" parent)
     (input-submit-button "Create")))
 
@@ -828,8 +819,17 @@ file name and returns the path to the file with a trailing slash."
 
 (defun add-user-action (username password new-roles email)
   (a:d-add-user *rbac* username password
-    :roles new-roles
-    :email email))
+      :roles new-roles
+      :email email)
+  (ensure-immutable-user-roles username))
+
+(defun ensure-immutable-user-roles (username)
+  (loop with to-add = (set-difference 
+                        (immutable-user-roles username)
+                        (user-roles username)
+                        :test 'equal)
+    for role in to-add
+    do (a:d-add-user-role *rbac* username role)))
 
 (define-add-handler (add-role-handler "/add-role")
   (role description (permissions :parameter-type '(list string)))
@@ -949,7 +949,6 @@ file name and returns the path to the file with a trailing slash."
           :status "login failed" :user username)
         nil))))
 
-
 (defmacro define-list-handler
   ;; *admin-role* is not available during compilation, we we're using
   ;; its value directly here.
@@ -1004,7 +1003,7 @@ file name and returns the path to the file with a trailing slash."
          ;; Assemble page
          (page
            (s:with-html-string
-             (:div :class (format nil "~a-list" ,list-name)
+             (:div :class (format nil "~a-list" (label-to-name ,list-name))
                (:raw ,render-list-function)
                (:raw (render-pager
                        (car (re:split "\\?" (h:request-uri*)))
@@ -1028,6 +1027,45 @@ file name and returns the path to the file with a trailing slash."
   (a:list-users-count *rbac*)
   (render-new-user-form)
   "users")
+
+(define-list-handler (list-role-users-handler "/list-role-users")
+  (role
+    (page :parameter-type 'integer :init-form 1)
+    (page-size :parameter-type 'integer :init-form 20))
+  (render-role-user-list role page page-size)
+  (a:list-role-users-count *rbac* role)
+  (render-new-role-user-form role)
+  "role users")
+
+(defun render-role-user-list (role page page-size)
+  (let ((headers (list "User" "Email" "Created" "Last Login" "Other Roles" " "))
+         (rows (loop with users = (a:list-role-users *rbac* role page page-size)
+                 for user in users
+                 for username = (getf user :username)
+                 for email = (getf user :email)
+                 for created = (readable-timestamp (getf user :created-at))
+                 for last-login = (readable-timestamp (getf user :last-login))
+                 for other-roles = (exclude 
+                                     (user-list-user-roles username)
+                                     role)
+                 for checkbox = (input-checkbox ""
+                                  :name "usernames"
+                                  :value username
+                                  :disabled (equal *admin* username))
+                 collect (list username email created last-login other-roles 
+                           checkbox))))
+    (input-form "delete-role-users-form" "delete-role-users-form"
+      "/delete-role-users" "post"
+      (s:with-html-string
+        (:raw (render-table headers rows))
+        (:raw (input-submit-button "Delete Users from Role"))))))
+
+(defun render-new-role-user-form (role)
+  (input-form "add-role-user-form" "add-role-user-form"
+    "/add-role-user" "post")
+  (input-hidden "role" role)
+  (input-text "Username:" :required t)
+  (input-submit-button "Add to Role"))
 
 (h:define-easy-handler (delete-users-handler :uri "/delete-users"
                          :default-request-type :post)
@@ -1255,9 +1293,11 @@ file name and returns the path to the file with a trailing slash."
     (unless allowed
       (setf (h:return-code*) h:+http-forbidden+)
       (return-from edit-user-roles-do-handler "Forbidden"))
-    (let* ((existing-roles (user-roles target-user))
-            (to-add (set-difference target-roles existing-roles :test 'equal))
-            (to-remove (set-difference existing-roles target-roles :test 'equal)))
+    (let* ((existing-roles (mutable-user-roles target-user))
+            (to-add (set-difference target-roles existing-roles
+                      :test 'equal))
+            (to-remove (set-difference existing-roles target-roles
+                         :test 'equal)))
       (u:log-it-pairs :debug :in "edit-user-roles-do-handler"
         :existing-roles existing-roles
         :to-add to-add
@@ -1285,7 +1325,7 @@ file name and returns the path to the file with a trailing slash."
              for permissions = (when include
                                  (a:list-role-permission-names *rbac* role-name))
              for checkbox = (when include
-                              (input-checkbox "roles" "" :value role-name
+                              (input-checkbox "" :name "roles" :value role-name
                               :disabled (has (undeletable-roles) role-name)))
              when include collect
              (list role-name description created user-count
@@ -1300,8 +1340,7 @@ file name and returns the path to the file with a trailing slash."
     (:raw (input-form "add-role" "add-role" "/add-role" "post"
             (input-text "Role:" :required t)
             (input-text "Description:" :required t)
-            (input-checkbox-list "permissions" "Permissions:"
-              (permission-names))
+            (input-checkbox-list "Permissions:" (permission-names))
             (input-submit-button "Create")))))
 
 (defun render-edit-directory-roles-form (parent directory user)
@@ -1321,7 +1360,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       "/edit-directory-roles-do" "post"
       (input-hidden "parent" parent)
       (input-hidden "directory" directory)
-      (input-checkbox-list "roles" "Roles: " roles :checked checked)
+      (input-checkbox-list "Roles:" roles :checked checked)
       (input-submit-button "Update"))))
 
 (defun user-role-edit-disabled (user role)
@@ -1357,7 +1396,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
     (input-form "edit-user-roles" "edit-user-roles"
       "/edit-user-roles-do" "post"
       (input-hidden "user" user)
-      (input-checkbox-list "roles" "Roles: "
+      (input-checkbox-list "Roles:"
         (mapcar (lambda (r) (getf r :role)) sorted)
         :checked (mapcar (lambda (r) (getf r :checked)) sorted)
         :disabled (mapcar (lambda (r) (getf r :disabled)) sorted))
