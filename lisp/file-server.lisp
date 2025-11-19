@@ -1447,14 +1447,12 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         :user user
         :subtitle "Settings"))))
 
-(h:define-easy-handler (settings-do-handler :uri "/settings-do"
-                            :default-request-type :post)
-  ()
-  (let ((params (h:post-parameters*)))
-    (loop for (key . value) in (h:post-parameters*)
+;; (h:define-easy-handler (settings-do-handler :uri "/settings-do"
+;;                             :default-request-type :post)
+;;   ()
+;;   (let ((params (h:post-parameters*)))
+;;     (loop for (key . value) in (h:post-parameters*)
       
-    
-
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
                         :port *http-port*
