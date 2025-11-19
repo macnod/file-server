@@ -217,10 +217,15 @@ empty string."
                   (or beg url))
       finally (return url))))
 
-(defun form-text (text &key (class "form-text"))
+(defun form-title (text &key class)
+  (s:with-html-string
+    (:div :class (add-to-class "form-title" class)
+      (:span :class "form-title-text" text))))
+
+(defun form-text (text &key class)
   (s:with-html-string
     (:div :class "form-group"
-      (:span :class class text))))
+      (:span :class (add-to-class class "form-text") text))))
 
 (defun add-to-class (existing-class new-class)
   (cond
@@ -228,7 +233,7 @@ empty string."
       (format nil "~a ~a" existing-class new-class))
     (existing-class existing-class)
     (new-class new-class)
-    (t nil)))
+    (t (error "EXISTING-CLASS and NEW-CLASS are both NIL!")))) 
 
 (defun label-to-name (label)
   "Convert LABEL to a name suitable for use as an HTML form element name or ID."
@@ -245,6 +250,7 @@ empty string."
                     required
                     is-password
                     placeholder
+                    value
                     class)
   (s:with-html-string
     (:div :class "form-group"
@@ -252,6 +258,7 @@ empty string."
       (:input :type (if is-password "password" "text")
         :id (name-to-id name)
         :name name
+        :value value
         :class (add-to-class class "text-input")
         :required required
         :placeholder placeholder))))
@@ -286,6 +293,19 @@ empty string."
           :disabled disabled)
         label))))
 
+(defun input-checkbox-pre (label &key
+                            (name (label-to-name label))
+                            checked
+                            value
+                            disabled
+                            class)
+  (s:with-html-string
+    (:div :class "form-group"
+      (:label :for name label)
+      (:input :type "checkbox" :name name :checked checked :value value
+        :class (add-to-class class "input-checkbox-pre")
+        :disabled disabled))))
+
 (defun input-checkbox-list (label values &key
                              class
                              (name (label-to-name label))
@@ -315,9 +335,11 @@ empty string."
         (:div :class (add-to-class class "input-checkbox-list")
           (:raw checkboxes))))))
 
-(defun input-form (id class action method &rest fields)
+(defun input-form (class action method &rest fields)
   (s:with-html-string
-    (:form :id id :class class :action action :method method
+    (:form :class (add-to-class "standard-form" class)
+      :action action 
+      :method method
       (:raw (join-html fields)))))
 
 (defun input-submit-button (display &key name value (class "submit-button"))

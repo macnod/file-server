@@ -29,9 +29,9 @@
 
 ;; User default settings
 (defparameter *default-user-settings*
-  '(:setting-1 (:type "discreet" :default "value-1")
-     :setting-2 (:type "discreet" :default "value-2")
-     :setting-3 "value-3"))
+  '(("dark mode" "false")
+     ("items per page" 20)
+     ("landing page" "/files?path=/")))
 
 ;; JWT Secret
 (defparameter *jwt-secret*
@@ -135,6 +135,30 @@ directory's ID if it does and NIL otherwise."
           :error (format nil "~a" e))
         nil))))
 
+(defun ensure-immutable-user-roles (username)
+  (loop with to-add = (set-difference 
+                        (immutable-user-roles username)
+                        (user-roles username)
+                        :test 'equal)
+    for role in to-add
+    do (a:d-add-user-role *rbac* username role)))
+
+(defun db-add-user (username password email roles)
+  (a:d-add-user *rbac* username password :roles roles :email email)
+  (ensure-immutable-user-roles username)
+  (create-user-settings username)
+  (u:log-it-pairs :info :in "db-add-user"
+    :status "added user"
+    :username username
+    :email email
+    :roles (a:list-user-role-names *rbac* username
+             :page-size *max-page-size*)))
+
+(defun db-add-resource (resource &key roles)
+  (let ((all-roles (u:distinct-values 
+                     (append roles (list *admin-role* *system-role*)))))
+    (a:d-add-resource *rbac* resource :roles all-roles)))
+
 (defun fs-list-directories ()
   (let* ((dirs (mapcar
                  (lambda (d) (format nil "~a" d))
@@ -161,7 +185,7 @@ should correspond exactly to the directories in the file system."
           (added (loop
                    for dir in fs-dirs
                    unless (db-directory-id dir)
-                   do (a:d-add-resource *rbac* dir :roles (list *admin-role*))
+                   do (db-add-resource dir)
                    and collect dir))
           (removed (loop for dir in db-dirs
                      unless (has fs-dirs dir)
@@ -256,7 +280,8 @@ file name and returns the path to the file with a trailing slash."
             (when subtitle (:h2 subtitle))
             (:raw content)
             (:div :class "status-line"
-              (:span *environment* " environment version " *version*))))))))
+              (:span "environment:" *environment*)
+              (:span "version:"*version*))))))))
 
 (defun assemble-breadcrumbs (path)
   (loop
@@ -373,7 +398,7 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-login-form (&key error-message redirect)
   (page
-    (input-form "login-form" "login-form" "/login-do" "post"
+    (input-form "login-form" "/login-do" "post"
       (when error-message (form-text error-message :class "error-message"))
       (input-hidden "redirect" redirect)
       (input-text "Username: " :required t)
@@ -561,7 +586,7 @@ file name and returns the path to the file with a trailing slash."
                  when include
                  collect (list username email created last-login roles
                            checkbox))))
-    (input-form "delete-users-form" "delete-users-form" "/delete-users" "post"
+    (input-form "delete-users-form" "/delete-users" "post"
       (s:with-html-string
         (:raw (render-table headers rows))
         (:raw (input-submit-button "Delete Users"))))))
@@ -641,7 +666,7 @@ file name and returns the path to the file with a trailing slash."
 
 (defun render-new-user-form ()
   (let ((roles (regular-roles)))
-    (input-form "add-user" "add-user" "/add-user" "post"
+    (input-form "add-user" "/add-user" "post"
       (input-text "Username:" :required t)
       (input-text "Email:" :required t)
       (input-password :required t)
@@ -679,7 +704,8 @@ file name and returns the path to the file with a trailing slash."
       (exclude-except roles ":exclusive$" exceptions))))
 
 (defun render-new-directory-form (user parent)
-  (input-form "add-directory" "add-directory" "/add-directory" "post"
+  (input-form "add-directory" "/add-directory" "post"
+    (form-title "Create Directory")
     (input-text "Directory Name (no slashes):" :required t :name "directory")
     (input-checkbox-list "Roles:" (role-options user parent))
     (input-hidden "parent" parent)
@@ -814,22 +840,8 @@ file name and returns the path to the file with a trailing slash."
   (username email password confirm-password
     (new-roles :real-name "roles" :parameter-type '(list string)))
   (((equal password confirm-password) "Passwords don't match"))
-  (add-user-action username password new-roles email)
+  (db-add-user username password email new-roles)
   "user")
-
-(defun add-user-action (username password new-roles email)
-  (a:d-add-user *rbac* username password
-      :roles new-roles
-      :email email)
-  (ensure-immutable-user-roles username))
-
-(defun ensure-immutable-user-roles (username)
-  (loop with to-add = (set-difference 
-                        (immutable-user-roles username)
-                        (user-roles username)
-                        :test 'equal)
-    for role in to-add
-    do (a:d-add-user-role *rbac* username role)))
 
 (define-add-handler (add-role-handler "/add-role")
   (role description (permissions :parameter-type '(list string)))
@@ -868,7 +880,7 @@ file name and returns the path to the file with a trailing slash."
       :absolute-path absolute-path
       :all-roles all-roles)
     (ensure-directories-exist absolute-path)
-    (a:d-add-resource *rbac* resource :roles all-roles))
+    (db-add-resource resource :roles all-roles))
   "directory")
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
@@ -906,7 +918,6 @@ file name and returns the path to the file with a trailing slash."
                     (list
                       description
                       (input-form
-                        "confirmation-form"
                         "confirmation-form"
                         form-action
                         "get"
@@ -1054,18 +1065,16 @@ file name and returns the path to the file with a trailing slash."
                                   :disabled (equal *admin* username))
                  collect (list username email created last-login other-roles 
                            checkbox))))
-    (input-form "delete-role-users-form" "delete-role-users-form"
-      "/delete-role-users" "post"
+    (input-form "delete-role-users-form" "/delete-role-users" "post"
       (s:with-html-string
         (:raw (render-table headers rows))
         (:raw (input-submit-button "Delete Users from Role"))))))
 
 (defun render-new-role-user-form (role)
-  (input-form "add-role-user-form" "add-role-user-form"
-    "/add-role-user" "post")
-  (input-hidden "role" role)
-  (input-text "Username:" :required t)
-  (input-submit-button "Add to Role"))
+  (input-form "add-role-user-form" "/add-role-user" "post"
+    (input-hidden "role" role)
+    (input-text "Username:" :required t)
+    (input-submit-button "Add to Role")))
 
 (h:define-easy-handler (delete-users-handler :uri "/delete-users"
                          :default-request-type :post)
@@ -1239,12 +1248,12 @@ file name and returns the path to the file with a trailing slash."
         (success-page user "Updated roles for directory ~a." directory))))
 
 (defun undeletable-roles ()
-  (list
-    *admin-role*
-    (exclusive-role-for *admin*)
-    *public-role*
-    *system-role*
-    (exclusive-role-for *system*)))
+  (append
+    (list
+      *admin-role*
+      *public-role*
+      *system-role*)
+    (remove-if-not (lambda (r) (re:scan ":exclusive$" r)) (role-names))))
 
 (defun excluded-from-role-list ()
   (list
@@ -1330,14 +1339,14 @@ file name and returns the path to the file with a trailing slash."
              when include collect
              (list role-name description created user-count
                (format nil "~{~a~^, ~}" permissions) checkbox))))
-    (input-form "delete-roles-form" "delete-roles-form" "/delete-roles" "post"
+    (input-form "delete-roles-form" "/delete-roles" "post"
       (s:with-html-string
         (:raw (render-table headers rows))
         (:raw (input-submit-button "Delete Roles"))))))
 
 (defun render-new-role-form ()
   (s:with-html-string
-    (:raw (input-form "add-role" "add-role" "/add-role" "post"
+    (:raw (input-form "add-role" "/add-role" "post"
             (input-text "Role:" :required t)
             (input-text "Description:" :required t)
             (input-checkbox-list "Permissions:" (permission-names))
@@ -1356,8 +1365,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                      finally (return checked-states))))
     (u:log-it-pairs :debug :in "render-edit-directory-roles-form"
       :parent parent :directory directory :user user :roles roles)
-    (input-form "edit-directory-roles" "edit-directory-roles"
-      "/edit-directory-roles-do" "post"
+    (input-form "edit-directory-roles" "/edit-directory-roles-do" "post"
       (input-hidden "parent" parent)
       (input-hidden "directory" directory)
       (input-checkbox-list "Roles:" roles :checked checked)
@@ -1393,8 +1401,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                           (if (getf b :disabled) "a" "b")
                           (if (getf b :checked) "a" "b")
                           (getf b :role)))))))
-    (input-form "edit-user-roles" "edit-user-roles"
-      "/edit-user-roles-do" "post"
+    (input-form "edit-user-roles" "/edit-user-roles-do" "post"
       (input-hidden "user" user)
       (input-checkbox-list "Roles:"
         (mapcar (lambda (r) (getf r :role)) sorted)
@@ -1416,20 +1423,21 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       (return-from settings-handler "Forbidden"))
     (let ((settings (a:with-rbac (*rbac*)
                       (db:query "select
-                                   us.id,
-                                   us.setting_key as setting,
-                                   us.setting_value as value
+                                   us.setting_key,
+                                   us.setting_value
                                  from user_settings us
                                  join users u on us.user_id = u.id
                                  where u.username = $1"
-                        user
-                        :alists))))
+                        user))))
       (page
-        (input-form "settings-form" "settings-form" "/settings-do" "post"
-          (loop for (serialized-key . serialized-value) in settings
-            for key = (format nil "~(~a~)" serialized-key)
+        (input-form "settings-form" "/settings-do" "post"
+          (loop for (key serialized-value) in settings
             for value = (read-from-string serialized-value)
-            collect (input-text key) into fields
+            for display-key = (format nil "~a:" key)
+            for field = (if (member value '(t nil))
+                          (input-checkbox-pre display-key :checked value)
+                          (input-text display-key :value value))
+            collect field into fields
             finally (return (join-html fields)))
           (input-password)
           (input-submit-button "Apply Changes")
@@ -1438,6 +1446,14 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
               (:a :href "/logout" "Log Out"))))
         :user user
         :subtitle "Settings"))))
+
+(h:define-easy-handler (settings-do-handler :uri "/settings-do"
+                            :default-request-type :post)
+  ()
+  (let ((params (h:post-parameters*)))
+    (loop for (key . value) in (h:post-parameters*)
+      
+    
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -1454,6 +1470,58 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
 (defun stop-web-server ()
   (h:stop *http-server*)
   (setf *http-server* nil))
+
+(defun update-user-setting (user name value actor)
+  (let ((user-id (a:get-id *rbac* "users" user))
+         (actor-id (a:get-id *rbac* "users" actor))
+         (sql (a:usql  "insert into user_settings
+                         (user_id, setting_key, setting_value, updated_by)
+                       values ($1, $2, $3, $4)
+                       on conflict (user_id, setting_key)
+                       do update set 
+                         setting_value = excluded.setting_value,
+                         updated_by = excluded.updated_by,
+                         updated_at = now()")))
+    (if (and user-id actor-id)
+      (handler-case
+        (progn
+          (a:with-rbac (*rbac*)
+            (db:query sql 
+              user-id 
+              name 
+              (format nil "~s" value)
+              actor-id))
+          (u:log-it-pairs :debug :in "add-user-setting" :status "success"
+            :name name :value value :actor actor :actor-id actor-id)
+          t)
+        (error (e)
+          (u:log-it-pairs :error :in "add-user-setting"
+            :status "fail" :error (format nil "~a" e)
+            :sql sql :user user :user-id user-id 
+            :name name :value value :serialized-value (format nil "~s" value)
+            :actor actor :actor-id actor-id)
+          nil))
+      (progn
+        (u:log-it-pairs :error :in "add-user-setting"
+          :status "fail" :error "unknown user or actor, or invalid type" 
+          :user user :user-id user-id :name name
+          :value value :serialized-value (format nil "~s" value)
+          :actor actor :actor-id actor-id)
+        nil))))
+
+(defun create-user-settings (user)
+  (loop with user-id = (or (a:get-id *rbac* "users" user)
+                         (progn
+                           (u:log-it-pairs :error :in "create-user-settings"
+                             :status "unknown user" :user user)
+                           (return-from create-user-settings nil)))
+    for setting in *default-user-settings*
+    for exists = (a:get-value *rbac* "user_settings" "id" 
+                   "user_id" user-id 
+                   "setting_key" (car setting))
+    unless exists
+    do (update-user-setting user (car setting) (cadr setting) *admin*)
+    and collect (car setting)))
 
 (defun init-database ()
   (u:log-it-pairs :info :in "init-database"
@@ -1476,15 +1544,14 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       :description "The administrative role."))
   ;; Add admin user if they don't exist
   (unless (a:get-id *rbac* *users-table* *admin*)
-    (a:d-add-user *rbac* *admin* *admin-password*
-      :roles (list *admin-role*)))
+    (db-add-user *admin* *admin-password* "no-email" 
+      (list *admin-role*)))
   ;; Add the guest user if they don't exist
   (unless (a:get-id *rbac* *users-table* *guest*)
-    (a:d-add-user *rbac* *guest* *guest-password*
-      :roles (list *public-role*)))
+    (db-add-user *guest* *guest-password* "no-email"
+      (list *public-role*)))
   ;; Remove logged-in role from guest if necessary
-  (when (member *logged-in-role* (db-list-roles *guest*)
-          :test 'equal)
+  (when (member *logged-in-role* (user-roles *guest*) :test 'equal)
     (a:d-remove-user-role *rbac* *guest* *logged-in-role*))
   ;; Fix permissions for guest exclusive role (we want read only)
   (loop with exclusive-role = (exclusive-role-for *guest*)
@@ -1493,10 +1560,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
     do (a:d-remove-role-permission *rbac* exclusive-role permission))
   ;; Add a public root directory resource
   (unless (a:get-id *rbac* *resources-table* "/")
-    (a:d-add-resource *rbac* "/" :roles (list *public-role*)))
-  ;; Add the logged-in role to the "/" resource
-  (unless (has (resource-roles "/") *logged-in-role*)
-    (a:d-add-resource-role *rbac* "/" *logged-in-role*))
+    (db-add-resource "/" :roles (list *public-role* *logged-in-role*)))
   ;; All done. Return the connection, even though nothing is likely
   ;; to need it, for debugging and testing.
   *rbac*)

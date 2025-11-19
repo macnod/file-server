@@ -90,7 +90,9 @@
            :transform "translateX(-50%)"
            :text-align "center"
            :font-family "mono"
-           :font-size "0.8rem")
+           :font-size "0.8rem"
+           :display "flex"
+           :gap "4rem")
 
          ((:or .user-list .roles-list .users-list .roles-list .role-users-list)
            :width "100%"
@@ -130,6 +132,13 @@
            :margin-top "1rem"
            :padding "1.5rem"
            :gap "0.5rem"
+           (.form-title
+             :grid-column "1 / -1"
+             :text-align "center"
+             :margin-bottom "1.0rem"
+             :font-size "1.3rem"
+             (.form-title-text
+               :display "inline-block"))
            (.form-group
              :display "flex"
              :align-items "right"
@@ -141,6 +150,10 @@
              (.text-input
                :grid-column "2"
                :width "15rem"))
+           (.password-group
+             :display "flex"
+             :flex-direction "column"
+             :gap "0.50rem")
            (.input-checkbox-list
              :display "flex"
              :flex-direction "column"
