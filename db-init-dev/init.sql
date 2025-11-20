@@ -23,6 +23,19 @@ create table users (
     email text not null
 );
 
+-- Not part of RBAC, just needed for file-server functionality
+create table user_settings (
+    id uuid primary key default uuid_generate_v4(),
+    created_at timestamp not null default now(),
+    updated_at timestamp not null default now(),
+    deleted_at timestamp default null,
+    updated_by uuid not null references users(id) on delete cascade,
+    user_id uuid not null references users(id) on delete cascade,
+    setting_key text not null,
+    setting_value text not null,
+    unique(user_id, setting_key)
+);
+
 -- permissions
 create table permissions (
     id uuid primary key default uuid_generate_v4(),

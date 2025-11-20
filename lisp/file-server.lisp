@@ -29,9 +29,9 @@
 
 ;; User default settings
 (defparameter *default-user-settings*
-  '(("dark mode" "false")
-     ("items per page" 20)
-     ("landing page" "/files?path=/")))
+  '((:setting "dark mode" :type :boolean :value nil)
+     (:setting "items per page" :type :scalar :value 20)
+     (:setting "landing page" :type :scalar :value "/files?path=/")))
 
 ;; JWT Secret
 (defparameter *jwt-secret*
@@ -272,7 +272,7 @@ file name and returns the path to the file with a trailing slash."
       (:html
         (:head
           (:title title)
-          (:link :rel "stylesheet" :href "/css"))
+          (:link :rel "stylesheet" :href "/css?"))
         (:body
           (:div :class "main-page"
             (:raw (menu user subtitle))
@@ -321,6 +321,54 @@ file name and returns the path to the file with a trailing slash."
       (list *admin-role*)
       roles-show)))
 
+(defun directory-section (user path subdirs)
+  (s:with-html-string
+    (:ul :class "listing"
+      (loop
+        with image = "/image?name=folder.png"
+        and image-edit = "/image?name=edit.png"
+        for dir in subdirs
+        for name = (u:leaf-directory-only dir)
+        for dir-roles = (format nil "~{~a~^, ~}" (directory-roles dir))
+        for href = (format nil "/files?path=~a" dir)
+        for edit-roles-href = (add-to-url-query "/edit-directory-roles"
+                                "directory" dir
+                                "parent" path)
+        collect
+        (:li
+          (:a :href href
+            (:img :src image
+              :alt "Open directory" :title "Open directory"
+              :width 24 :height 24)
+            name)
+          (:span dir-roles)
+          (when (a:user-allowed *rbac* user "update" path)
+            (:a :href edit-roles-href :class "edit-roles-link"
+              (:img :src image-edit :alt "Edit roles" :title "Edit roles"
+                :width 16 :height 16))))))))
+
+(defun files-section (files)
+  (s:with-html-string
+    (:ul :class "listing"
+      (mapcar
+        (lambda (f)
+          (:li (:a :href (format nil "/files?path=~a" f)
+                 :target "_blank"
+                 (:img :src "/image?name=file.png"
+                   :alt "Open file" :title "Open file"
+                   :width 24 :height 24)
+                 (u:filename-only f))))
+        files))))
+
+(defun directory-bread-crumbs (crumbs roles)
+  (s:with-html-string
+    (:div :class "breadcrumb"
+      (:img :src "/image?name=home.png" :width 24 :height 24)
+      (:div (:raw crumbs)))
+    (:div :class "access-list"
+      (:img :src "/image?name=users.png" :width 16 :height 16)
+      (:span (format nil "~{~a~^, ~}" roles)))))
+
 (defun render-directory-listing (user path abs-path)
   (setf (h:content-type*) "text/html")
   (let ((files (list-files abs-path))
@@ -335,49 +383,13 @@ file name and returns the path to the file with a trailing slash."
       :files files
       :subdirectories subdirs
       :access-list roles)
-    (page (s:with-html-string
-            (:div :class "breadcrumb"
-              (:img :src "/image?name=home.png" :width 24 :height 24)
-              (:div (:raw crumbs)))
-            (:div :class "access-list"
-              (:img :src "/image?name=users.png" :width 16 :height 16)
-              (:span (format nil "~{~a~^, ~}" roles)))
-            ;; Directories
-            (:ul :class "listing"
-              (loop
-                with image = "/image?name=folder.png"
-                and image-edit = "/image?name=edit.png"
-                for dir in subdirs
-                for name = (u:leaf-directory-only dir)
-                for dir-roles = (format nil "~{~a~^, ~}" (directory-roles dir))
-                for href = (format nil "/files?path=~a" dir)
-                for edit-roles-href = (add-to-url-query "/edit-directory-roles"
-                                        "directory" dir
-                                        "parent" path)
-                collect
-                (:li
-                  (:a :href href
-                    (:img :src image
-                      :alt "Open directory" :title "Open directory"
-                      :width 24 :height 24) name)
-                  (:span dir-roles)
-                  (when (a:user-allowed *rbac* user "update" path)
-                    (:a :href edit-roles-href :class "edit-roles-link"
-                      (:img :src image-edit :alt "Edit roles" :title "Edit roles"
-                        :width 16 :height 16))))))
-            ;; Files
-            (:ul :class "listing"
-              (mapcar
-                (lambda (f)
-                  (:li (:a :href (format nil "/files?path=~a" f)
-                         :target "_blank"
-                         (:img :src "/image?name=file.png"
-                           :alt "Open file" :title "Open file"
-                           :width 24 :height 24)
-                         (u:filename-only f))))
-                files))
-            (when (has (user-roles user) *logged-in-role*)
-              (:raw (render-new-directory-form user path))))
+    (page (join-html
+            (list
+              (directory-bread-crumbs crumbs roles)
+              (directory-section user path subdirs)
+              (files-section files)
+              (when (has (user-roles user) *logged-in-role*)
+                (render-new-directory-form user path))))
       :user user
       :subtitle "Files")))
 
@@ -469,7 +481,10 @@ file name and returns the path to the file with a trailing slash."
 
 (h:define-easy-handler (css :uri "/css") ()
   (setf (h:content-type*) "text/css")
-  (generate-css))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *public-role*))
+    (declare (ignore allowed required-roles))
+    (generate-css user)))
 
 (h:define-easy-handler (favicon :uri "/favicon.ico") ()
   (h:handle-static-file *favicon*))
@@ -663,6 +678,28 @@ file name and returns the path to the file with a trailing slash."
 (defun regular-resource-roles (resource)
   (a:list-resource-role-names-regular *rbac* resource
     :page-size *max-page-size*))
+
+(defun default-setting (name)
+  (getf (loop for setting in *default-user-settings*
+          when (equal (getf setting :setting) name)
+          return setting)
+    :value))
+
+(defun setting-exists (name)
+  (loop for setting in *default-user-settings*
+    thereis (equal (getf setting :setting) name)))
+
+(defun user-setting (user setting)
+  (let ((id (when user (a:get-id *rbac* "users" user))))
+    (when (setting-exists setting)
+      (if id
+        (let ((serialized (a:get-value *rbac* "user_settings" "setting_value"
+                            "user_id" id
+                            "setting_key" setting)))
+          (if serialized
+            (read-from-string serialized)
+            (default-setting setting)))
+        (default-setting setting)))))
 
 (defun render-new-user-form ()
   (let ((roles (regular-roles)))
@@ -1411,7 +1448,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
 
 (h:define-easy-handler (settings-handler :uri "/settings"
                          :default-request-type :get)
-  ()
+  (message)
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *logged-in-role*))
     (u:log-it-pairs :debug :in "settings-handler"
@@ -1419,7 +1456,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       :allowed allowed
       :required-roles required-roles)
     (unless allowed
-      (setf (h:return-code*) h:+http-forbidden+)
+      (h:redirect "/login" :protocol :https)
       (return-from settings-handler "Forbidden"))
     (let ((settings (a:with-rbac (*rbac*)
                       (db:query "select
@@ -1427,10 +1464,12 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                                    us.setting_value
                                  from user_settings us
                                  join users u on us.user_id = u.id
-                                 where u.username = $1"
+                                 where u.username = $1
+                                 order by us.setting_key"
                         user))))
       (page
         (input-form "settings-form" "/settings-do" "post"
+          (when message (form-text message :class "settings-message"))
           (loop for (key serialized-value) in settings
             for value = (read-from-string serialized-value)
             for display-key = (format nil "~a:" key)
@@ -1447,11 +1486,80 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         :user user
         :subtitle "Settings"))))
 
-;; (h:define-easy-handler (settings-do-handler :uri "/settings-do"
-;;                             :default-request-type :post)
-;;   ()
-;;   (let ((params (h:post-parameters*)))
-;;     (loop for (key . value) in (h:post-parameters*)
+(defun log-pairs-from-post-parameters (starting-list)
+  (loop for (key . value) in (h:post-parameters*)
+    for keyword = (intern (string-upcase (label-to-name key)) "KEYWORD")
+    append (list keyword value) into pairs
+    finally (return (append starting-list pairs))))
+
+(defun log-pairs-from-list (starting-list list)
+  (loop for key in list by #'cddr
+    for value in (cdr list) by #'cddr
+    for keyword = (intern (string-upcase (label-to-name key)) "KEYWORD")
+    append (list keyword value) into pairs
+    finally (return (append starting-list pairs))))
+
+(defparameter *last-post-parameters* nil)
+
+(h:define-easy-handler (settings-do-handler :uri "/settings-do"
+                            :default-request-type :post)
+  ()
+  (setf *last-post-parameters* (h:post-parameters*))
+  (multiple-value-bind (user allowed required-roles)
+    (session-user (list *logged-in-role*))
+    (apply #'u:log-it-pairs (log-pairs-from-post-parameters
+                              (list :debug :in "settings-do-handler"
+                                :user user
+                                :allowed allowed
+                                :required-roles required-roles)))
+    (unless allowed
+      (setf (h:return-code*) h:+http-forbidden+)
+      (return-from settings-do-handler
+        (error-page :warn "settings-do-handler" "updating settings" user
+          (list :user user :allowed allowed :required-roles required-roles)
+          "Authorization failed")))
+    (loop with params = (h:post-parameters*)
+      and known-keys = (mapcar 
+                         (lambda (x) (label-to-name (getf x :setting)))
+                         *default-user-settings*)
+      for setting in *default-user-settings*
+      for key = (getf setting :setting)
+      for type = (getf setting :type)
+      for default = (getf setting :default)
+      for field-name = (label-to-name key)
+      for raw-submitted-value = (cdr (assoc field-name params :test 'equal))
+      for submitted-value = (if (eql type :boolean)
+                              (if raw-submitted-value t nil)
+                              (if (and 
+                                    raw-submitted-value
+                                    (not (zerop (length raw-submitted-value))))
+                                (read-from-string raw-submitted-value)
+                                default))
+      for final-value = (if raw-submitted-value submitted-value default)
+      for is-known-setting = (when (member field-name known-keys
+                                     :test 'equal) t)
+      do (u:log-it-pairs :debug :in "settings-do-handler"
+           :key key
+           :type type
+           :default default
+           :raw-submitted-value raw-submitted-value
+           :submitted-value submitted-value
+           :final-value final-value
+           :is-known-setting is-known-setting)
+      when is-known-setting
+      collect (list key final-value) into settings-to-update
+      finally
+      (loop for (key value) in settings-to-update
+        do (update-user-setting user key value user)
+        appending (list key value) into updated-settings
+        finally
+        (apply #'u:log-it-pairs (log-pairs-from-list
+                                  (list :info :in "settings-do-handler"
+                                    :status "settings updated" :user user)
+                                  updated-settings))
+        (h:redirect 
+          (add-to-url-query "/settings" "message" "Settings updated")
+          :protocol :https)))))
       
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -1489,18 +1597,18 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
               name 
               (format nil "~s" value)
               actor-id))
-          (u:log-it-pairs :debug :in "add-user-setting" :status "success"
+          (u:log-it-pairs :debug :in "update-user-setting" :status "success"
             :name name :value value :actor actor :actor-id actor-id)
           t)
         (error (e)
-          (u:log-it-pairs :error :in "add-user-setting"
+          (u:log-it-pairs :error :in "update-user-setting"
             :status "fail" :error (format nil "~a" e)
             :sql sql :user user :user-id user-id 
             :name name :value value :serialized-value (format nil "~s" value)
             :actor actor :actor-id actor-id)
           nil))
       (progn
-        (u:log-it-pairs :error :in "add-user-setting"
+        (u:log-it-pairs :error :in "update-user-setting"
           :status "fail" :error "unknown user or actor, or invalid type" 
           :user user :user-id user-id :name name
           :value value :serialized-value (format nil "~s" value)
