@@ -38,7 +38,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server-dev:0.96.30
+          image: macnod/file-server-dev:0.96.31
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -55,7 +55,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: 0.96.25
+              value: 0.96.31
             - name: FILE_MANAGER_ENVIRONMENT
               value: dev
             # Database connection

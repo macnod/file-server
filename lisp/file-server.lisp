@@ -388,7 +388,9 @@ file name and returns the path to the file with a trailing slash."
               (directory-bread-crumbs crumbs roles)
               (directory-section user path subdirs)
               (files-section files)
-              (when (has (user-roles user) *logged-in-role*)
+              (when (and (has (user-roles user) *logged-in-role*)
+                      (a:user-allowed *rbac* user "create" path))
+                (render-upload-file-form path)
                 (render-new-directory-form user path))))
       :user user
       :subtitle "Files")))
@@ -747,6 +749,12 @@ file name and returns the path to the file with a trailing slash."
     (input-checkbox-list "Roles:" (role-options user parent))
     (input-hidden "parent" parent)
     (input-submit-button "Create")))
+
+(defun render-upload-file-form (parent)
+  (upload-form "upload-file" "/upload-file" "post"
+    (form-title "Upload File")
+    (input-hidden "parent" parent)
+    (input-file "Select File:" :required t :name "file")))
 
 (defun error-page (log-level in action user logging-list error-description
                     &rest params)

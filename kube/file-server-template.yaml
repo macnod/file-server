@@ -53,7 +53,7 @@ spec:
             - containerPort: 4005
           env:
             - name: FILE_MANAGER_VERSION
-              value: 0.96.25
+              value: $VERSION
             - name: FILE_MANAGER_ENVIRONMENT
               value: $ENVIRONMENT
             # Database connection

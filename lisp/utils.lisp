@@ -256,7 +256,6 @@ empty string."
     (:div :class "form-group"
       (:label :for name label)
       (:input :type (if is-password "password" "text")
-        :id (name-to-id name)
         :name name
         :value value
         :class (add-to-class class "text-input")
@@ -341,6 +340,21 @@ empty string."
       :action action 
       :method method
       (:raw (join-html fields)))))
+
+(defun upload-form (class action method &rest fields)
+  (s:with-html-string
+    (:form :class (add-to-class "multipart-form standard-form" class)
+      :action action
+      :method method
+      :enctype "multipart/form-data"
+      (:raw (join-html fields)))))
+
+(defun input-file (label &key (name (label-to-name label))
+                    required class)
+  (s:with-html-string
+    (:div :class (add-to-class "form-group" class)
+      (:label :for name label)
+      (:input :type "file" :name name :required required))))
 
 (defun input-submit-button (display &key name value (class "submit-button"))
   (s:with-html-string
