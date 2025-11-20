@@ -384,12 +384,13 @@ file name and returns the path to the file with a trailing slash."
       :subdirectories subdirs
       :access-list roles)
     (page (join-html
-            (list
-              (directory-bread-crumbs crumbs roles)
-              (directory-section user path subdirs)
-              (files-section files)
-              (when (and (has (user-roles user) *logged-in-role*)
-                      (a:user-allowed *rbac* user "create" path))
+            (directory-bread-crumbs crumbs roles)
+            (directory-section user path subdirs)
+            (files-section files)
+            (when (and 
+                    (has (user-roles user) *logged-in-role*)
+                    (a:user-allowed *rbac* user "create" path))
+              (list
                 (render-upload-file-form path)
                 (render-new-directory-form user path))))
       :user user
@@ -754,7 +755,8 @@ file name and returns the path to the file with a trailing slash."
   (upload-form "upload-file" "/upload-file" "post"
     (form-title "Upload File")
     (input-hidden "parent" parent)
-    (input-file "Select File:" :required t :name "file")))
+    (input-file "Select File:" :required t :name "file")
+    (input-submit-button "Upload")))
 
 (defun error-page (log-level in action user logging-list error-description
                     &rest params)
@@ -960,22 +962,21 @@ file name and returns the path to the file with a trailing slash."
         (s:with-html-string
           (:div :class "confirmation"
             (:raw (join-html
-                    (list
-                      description
-                      (input-form
-                        "confirmation-form"
-                        form-action
-                        "get"
-                        (input-hidden "source" source)
-                        (input-hidden "target" target)
-                        (input-submit-button "Cancel"
-                          :class "cancel-button"
-                          :name "action"
-                          :value "cancel")
-                        (input-submit-button "Confirm"
-                          :class "confirm-button"
-                          :name "action"
-                          :value "confirm")))))))
+                    description
+                    (input-form
+                      "confirmation-form"
+                      form-action
+                      "get"
+                      (input-hidden "source" source)
+                      (input-hidden "target" target)
+                      (input-submit-button "Cancel"
+                        :class "cancel-button"
+                        :name "action"
+                        :value "cancel")
+                      (input-submit-button "Confirm"
+                        :class "confirm-button"
+                        :name "action"
+                        :value "confirm"))))))
         :subtitle title
         :user user))))
 

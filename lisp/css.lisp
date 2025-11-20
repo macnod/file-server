@@ -145,6 +145,7 @@
               .add-role
               .add-role-user
               .add-directory
+              .upload-file
               .edit-directory-roles
               .edit-user-roles
               .settings-form

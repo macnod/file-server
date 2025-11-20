@@ -195,10 +195,9 @@ empty string."
       (subseq (re:regex-replace "T" ts " ") 0 16))
     ""))
 
-(defun join-html (list &optional (new-lines t))
-  (let ((format-string (if new-lines "~{~a~%~}" "~{~a~}"))
-         (list-no-nulls (remove-if-not #'identity list)))
-    (format nil format-string list-no-nulls)))
+(defun join-html (&rest list)
+  (let ((list-no-nulls (remove-if-not #'identity (u:flatten list))))
+    (format nil "~{~a~%~}" list-no-nulls)))
 
 (defun add-to-url-query (path &rest pairs)
   (when path

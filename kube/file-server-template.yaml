@@ -51,6 +51,21 @@ spec:
           ports:
             - containerPort: 8080
             - containerPort: 4005
+          resources:
+            requests:
+            memory: "4Gi"
+            cpu: "250m"
+          limits:
+            memory: "4Gi"
+            cpu: "1000m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
           env:
             - name: FILE_MANAGER_VERSION
               value: $VERSION
