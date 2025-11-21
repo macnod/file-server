@@ -322,8 +322,8 @@ file name and returns the path to the file with a trailing slash."
             (when subtitle (:h2 subtitle))
             (:raw content)
             (:div :class "status-line"
-              (:span "environment:" *environment*)
-              (:span "version:"*version*))))))))
+              (:span :class "environment" "environment:" *environment*)
+              (:span :class "version" "version:"*version*))))))))
 
 (defun assemble-breadcrumbs (path)
   (loop

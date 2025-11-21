@@ -9,7 +9,6 @@
   (let ((page-background-color (maybe-invert "#fff" user))
          (navbar-background-color (maybe-invert "#eee" user))
          (table-stripe-color (maybe-invert "#f2f2f2" user))
-         (status-line-color (maybe-invert "#f2f2f2" user))
          (navbar-font-family "mono")
          (nav-menu-color (maybe-invert "#222" user))
          (nav-menu-after-color (maybe-invert "#ddd" user))
@@ -107,21 +106,32 @@
                  (img :width "18px" :height "18px" :margin-right "4px"))))
 
            (.status-line
-             :position "fixed"
-             :left "50%"
-             :bottom "20px"
-             :transform "translateX(-50%)"
-             :text-align "center"
-             :font-family "mono"
-             :font-size "0.8rem"
-             :display "flex"
-             :gap "4rem"
-             :background ,status-line-color
-             :backdrop-filter "blur(4px)"
-             :padding "8px 20px"
-             :border-radius "8px"
-             :z-index "1000")
-)
+             ;; :position "fixed"
+             ;; :left "50%"
+             ;; :top "10px"
+             ;; :transform "translateX(-50%)"
+             ;; :text-align "center"
+             ;; :font-family "mono"
+             ;; :font-size "0.8rem"
+             ;; :display "flex"
+             ;; :gap "4rem"
+             (.environment
+               :position "fixed"
+               :top "10px"
+               :right "1rem"
+               :font-family "mono"
+               :font-size "0.8rem"
+               :color "#888"
+               :z-index "100")
+             (.version
+               :position "fixed"
+               :top "10px"
+               :left "1rem"
+               :font-family "mono"
+               :font-size "0.8rem"
+               :color "#888"
+               :z-index "100"))
+
 
            ((:or .user-list .roles-list .users-list .roles-list .role-users-list)
              :width "100%"
