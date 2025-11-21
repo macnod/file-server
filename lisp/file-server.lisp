@@ -47,6 +47,8 @@
 (defparameter *http-port* (u:getenv "HTTP_PORT" :default 8080 :type :integer))
 (defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT"
                                 :default "/app/shared-files/"))
+(defparameter *temp-directory* (u:getenv "FS_TEMP_DIRECTORY"
+                                 :default "/app/temp-files/"))
 (defparameter *swank-port* (u:getenv "SWANK_PORT" :default 4005 :type :integer))
 
 ;; Logs
@@ -113,6 +115,9 @@
 ;;
 ;; End custom Hunchentoot acceptor
 ;;
+
+;; Where Hunchentoot should store temporary files during uploads
+(setf h:*tmp-directory* *temp-directory*)
 
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
@@ -896,6 +901,25 @@ file name and returns the path to the file with a trailing slash."
   (a:d-add-role *rbac* role :description description :permissions permissions)
   "role")
 
+(defun absolute-directory-path (directory)
+  "Converts DIRECTORY, a string representing the logical path of a directory,
+which is relative to the document root and stored as a resource in the RBAC
+system, into an absolute path in the file system, where files are physically
+stored. This function ensures that the returned path ends with a trailing
+slash."
+  (let ((path (if (re:scan "/$" directory)
+                directory
+                (format nil "~a/" directory))))
+    (concatenate 'string (u:join-paths *document-root* path) "/")))
+
+(defun absolute-file-path (directory file)
+  "Converts DIRECTORY and FILE into an absolute path in the file system,
+where files are physically stored. DIRECTORY is a string representing the
+logical path of a directory, relative to the document root and stored as
+a resource in the RBAC system. FILE is the name of a file within that
+directory."
+  (u:join-paths *document-root* directory file))
+
 (define-add-handler (add-directory-handler "/add-directory"
                       :required-roles ("logged-in"))
   (directory
@@ -918,8 +942,7 @@ file name and returns the path to the file with a trailing slash."
     ((loop for role in new-roles always (a:get-id *rbac* *roles-table* role))
       "One or more roles doesn't exist"))
   (let* ((resource (concatenate 'string parent directory "/"))
-          (absolute-path (concatenate 'string
-                           (u:join-paths *document-root* resource) "/"))
+          (absolute-path (absolute-directory-path resource))
           (all-roles (cons (format nil "~a:exclusive" user) new-roles)))
     (u:log-it-pairs :debug :in "add-directory-handler"
       :user user
@@ -929,6 +952,29 @@ file name and returns the path to the file with a trailing slash."
     (ensure-directories-exist absolute-path)
     (db-add-resource resource :roles all-roles))
   "directory")
+
+(define-add-handler (upload-file-handler "/upload-file"
+                      :required-roles ("logged-in"))
+  (file parent)
+  (((equal (h:header-in* :content-type) "multipart/form-data")
+     "Content-Type must be multipart/form-data")
+    ((a:get-id *rbac* "resources" (concatenate 'string parent "/"))
+      (format nil "Parent directory '~a' doesn't exist" 
+        (concatenate 'string parent "/")))
+    ((a:user-allowed *rbac* user "create" (concatenate 'string parent "/"))
+      (format nil "User '~a' not allowed to upload to '~a'" user parent))
+    ((and file (listp file) (= (length file) 3))
+      "File upload is invalid"))
+  (let* ((temp-path (first file)) ;; Type PATHNAME
+          (original-filename (second file))
+          (content-type (third file))
+          (new-path (absolute-file-path parent original-filename)))
+    (rename-file temp-path (pathname new-path))
+    (u:log-it-pairs :info :in "upload-file-handler"
+      :status "file uploaded"
+      :new-path new-path
+      :content-type content-type))
+  "file")
 
 (h:define-easy-handler (confirm-handler :uri "/confirm")
   (source target)
