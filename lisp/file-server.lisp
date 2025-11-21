@@ -99,6 +99,7 @@
         :return-code code
         :status return-code
         :content-length (or (h:content-length*) 0)
+        :content-type (or (h:content-type*) "unknown")
         :referer (h:referer)
         :agent (h:user-agent)))))
 
@@ -178,6 +179,42 @@ directory's ID if it does and NIL otherwise."
   (if directory-list
     (u:hash-string (format nil "~{~a~^|~}" directory-list))
     ""))
+
+(defun copy-file (source destination &key 
+                   (if-exists :supersede)
+                   (buffer-size (* 64 1024)))
+  "Copies SOURCE file to DESTINATION file. If DESTINATION's directories do not
+exist, they are created. IF-EXISTS controls the behavior if DESTINATION already
+exists, and may be :error, :new-version, :rename, :rename-and-delete,
+:overwrite, :append, or :supersede. IF-EXISTS defaults to :supersede.
+BUFFER-SIZE controls the size of the buffer used during the copy operation, and
+defaults to 64 KB. Returns the DESTINATION path."
+  (when (stringp source)
+    (setf source (pathname source)))
+  (when (stringp destination)
+    (setf destination (pathname destination)))
+  (ensure-directories-exist destination)
+  (with-open-file (in source
+                      :direction :input
+                      :element-type '(unsigned-byte 8)
+                      :if-does-not-exist :error)
+    (with-open-file (out destination
+                        :direction :output
+                        :element-type '(unsigned-byte 8)
+                        :if-exists if-exists)
+      (let ((buf (make-array buffer-size :element-type '(unsigned-byte 8))))
+        (loop
+          (let ((pos (read-sequence buf in)))
+            (when (zerop pos)
+              (return))
+            (write-sequence buf out :end pos))))))
+
+  ;; Preserve modification time in a portable way (optional but nice)
+  (let ((mtime (file-write-date source)))
+    (when mtime
+      (ignore-errors
+        (sb-posix:utimes (namestring destination) mtime mtime))))
+  destination)
 
 (defun sync-directories ()
   "Ensures that directories that have been added to the file system are added to
@@ -835,8 +872,13 @@ file name and returns the path to the file with a trailing slash."
                            (t (first param-specs))))
                (name-param (h:parameter
                              (string-downcase (symbol-name name-sym))))
-               (action (format nil "adding ~a '~a'" ,element-name name-param))
                (handler (format nil "~(~a~)" ',handler-name))
+               (action (if (equal handler "upload-file-handler")
+                         (format nil "uploading ~a '~a'" 
+                           ,element-name
+                           (u:filename-only (second (h:parameter "file"))))
+                         (format nil "adding ~a '~a'" 
+                           ,element-name (h:parameter name-param))))
                (log-pairs (append
                             (list
                               :debug
@@ -955,21 +997,31 @@ directory."
 
 (define-add-handler (upload-file-handler "/upload-file"
                       :required-roles ("logged-in"))
-  (file parent)
-  (((equal (h:header-in* :content-type) "multipart/form-data")
-     "Content-Type must be multipart/form-data")
-    ((a:get-id *rbac* "resources" (concatenate 'string parent "/"))
-      (format nil "Parent directory '~a' doesn't exist" 
-        (concatenate 'string parent "/")))
-    ((a:user-allowed *rbac* user "create" (concatenate 'string parent "/"))
-      (format nil "User '~a' not allowed to upload to '~a'" user parent))
-    ((and file (listp file) (= (length file) 3))
-      "File upload is invalid"))
-  (let* ((temp-path (first file)) ;; Type PATHNAME
+  (parent)
+  (((or
+      (search "multipart/form-data" (h:header-in* :content-type))
+      (search "application/x-www-form-urlencoded" (h:header-in* :content-type)))
+     "Content-Type must be multipart/form-data"))
+  (let* ((file (h:post-parameter "file" h:*request*))
+          (parent (h:post-parameter "parent" h:*request*))
+          (temp-path (first file)) ;; Type PATHNAME
           (original-filename (second file))
           (content-type (third file))
           (new-path (absolute-file-path parent original-filename)))
-    (rename-file temp-path (pathname new-path))
+    ;; ((a:get-id *rbac* "resources" (concatenate 'string parent "/"))
+    ;;   (format nil "Parent directory '~a' doesn't exist" 
+    ;;     (concatenate 'string parent "/")))
+    ;; ((a:user-allowed *rbac* user "create" (concatenate 'string parent "/"))
+    ;;   (format nil "User '~a' not allowed to upload to '~a'" user parent))
+    ;; ((and file (listp file) (= (length file) 3))
+    ;;   "File upload is invalid"))
+    (u:log-it-pairs :debug :in "upload-file"
+      :user user
+      :temp-path (file-namestring temp-path)
+      :original-filename (file-namestring original-filename)
+      :content-type content-type
+      :new-path new-path)
+    (copy-file temp-path (pathname new-path))
     (u:log-it-pairs :info :in "upload-file-handler"
       :status "file uploaded"
       :new-path new-path
@@ -1679,7 +1731,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
     for setting in *default-user-settings*
     for exists = (a:get-value *rbac* "user_settings" "id" 
                    "user_id" user-id 
-                   "setting_key" (car setting))
+                   "setting_key" (getf setting :setting))
     unless exists
     do (update-user-setting user (car setting) (cadr setting) *admin*)
     and collect (car setting)))
