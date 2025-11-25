@@ -1,0 +1,48 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-{{ .Values.environment }}-deployment
+  namespace: {{ .Values.namespace }}
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      {{- include "postgres.labels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "postgres.labels" . | nindent 8 }}
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: {{ .Values.postgres.image }}
+          imagePullPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "fileserver"
+            - name: POSTGRES_USER
+              value: "fileserver"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-{{ .Values.environment }}-secrets
+                  key: postgres-password
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: pg-data
+            - mountPath: /docker-entrypoint-initdb.d
+              name: init-sql
+      volumes:
+        - name: pg-data
+          persistentVolumeClaim:
+            claimName: pg-{{ .Values.environment }}-pvc
+        - name: init-sql
+          hostPath:
+            path: {{ $.Values.postgres.hostPathBase }}/{{ .Values.environment }}/db-init
+            type: Directory

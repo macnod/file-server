@@ -1,0 +1,6 @@
+apiVersion: v2
+name: file-server
+description: File Server + PostgreSQL for dev/prod
+type: application
+version: 0.1.0
+appVersion: "1.0.0"

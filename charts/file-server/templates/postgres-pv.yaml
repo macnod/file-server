@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pg-{{ .Values.environment }}-pv
+  namespace: {{ .Values.namespace }}
+spec:
+  capacity:
+    storage: {{ .Values.postgres.storageSize }}
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: {{ $.Values.postgres.hostPathBase }}/{{ .Values.environment }}/pg-data
+    type: Directory

@@ -1,0 +1,209 @@
+---
+# Source: file-server/templates/postgres-pv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pg-dev-pv
+  namespace: misc
+spec:
+  capacity:
+    storage: 100Mi
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: /home/macnod/common-lisp/file-server/dev/pg-data
+    type: Directory
+---
+# Source: file-server/templates/postgres-pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pg-dev-pvc
+  namespace: misc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Mi
+  volumeName: pg-dev-pv
+  storageClassName: ""
+---
+# Source: file-server/templates/file-server-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: file-server-dev-service
+  namespace: misc
+spec:
+  type: NodePort
+  selector:
+    app: file-server-dev
+  ports:
+    - port: 3021
+      name: http
+      targetPort: 8080
+      nodePort: 30211
+    - port: 4106
+      name: swank
+      targetPort: 4005
+      nodePort: 30221
+---
+# Source: file-server/templates/postgres-service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-dev-service
+  namespace: misc
+spec:
+  type: NodePort
+  selector:
+    app: postgres-dev
+  ports:
+    - port: 5441
+      targetPort: 5432
+      nodePort: 30201
+---
+# Source: file-server/templates/file-server-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: file-server-dev-deployment
+  namespace: misc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: file-server-dev
+      environment: dev
+  template:
+    metadata:
+      labels:
+        app: file-server-dev
+        environment: dev
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: file-server
+          image: macnod/file-server:0.0.27
+          imagePullPolicy: Never
+          command: ["ros"]
+          args:
+            - "run"
+            - "--"
+            - "--eval"
+            - "(require :file-server)"
+            - "--eval"
+            - "(in-package :file-server)"
+            - "--eval"
+            - "(run)"
+          ports:
+            - containerPort: 8080
+            - containerPort: 4005
+          resources:
+            requests:
+              memory: "4Gi"
+              cpu: "250m"
+            limits:
+              memory: "4Gi"
+              cpu: "1000m"
+          # livenessProbe:
+          #   httpGet:
+          #     path: /health
+          #     port: 8080
+          #   initialDelaySeconds: 30
+          #   periodSeconds: 30
+          #   timeoutSeconds: 10
+          #   failureThreshold: 3
+          env:
+            - name: FILE_MANAGER_VERSION
+              value: "0.0.27"
+            - name: FILE_MANAGER_ENVIRONMENT
+              value: "dev"
+            - name: DB_HOST
+              value: postgres-dev-service
+            - name: DB_PORT
+              value: "5441"
+            - name: DB_NAME
+              value: "fileserver"
+            - name: DB_USER
+              value: "fileserver"
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-dev-secrets
+                  key: postgres-password
+            - name: ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-dev-secrets
+                  key: admin-user-password
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-dev-secrets
+                  key: jwt-secret
+            - name: LOG_SEVERITY
+              value: debug
+            - name: LOG_SUPPRESS_HEALTH
+              value: "true"
+            - name: WEB_DIRECTORY
+              value: "/app/web"
+          volumeMounts:
+            - mountPath: /app
+              name: file-server-volume
+      volumes:
+        - name: file-server-volume
+          hostPath:
+            path: /home/macnod/common-lisp/file-server/dev
+            type: Directory
+---
+# Source: file-server/templates/postgres-deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-dev-deployment
+  namespace: misc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres-dev
+  template:
+    metadata:
+      labels:
+        app: postgres-dev
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: postgres
+          image: postgres:16.10
+          imagePullPolicy: Never
+          securityContext:
+            runAsUser: 1000
+            runAsGroup: 1000
+          ports:
+            - containerPort: 5432
+          env:
+            - name: POSTGRES_DB
+              value: "fileserver"
+            - name: POSTGRES_USER
+              value: "fileserver"
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-dev-secrets
+                  key: postgres-password
+          volumeMounts:
+            - mountPath: /var/lib/postgresql/data
+              name: pg-data
+            - mountPath: /docker-entrypoint-initdb.d
+              name: init-sql
+      volumes:
+        - name: pg-data
+          persistentVolumeClaim:
+            claimName: pg-dev-pvc
+        - name: init-sql
+          hostPath:
+            path: /home/macnod/common-lisp/file-server/dev/db-init
+            type: Directory
