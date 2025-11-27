@@ -1,15 +1,15 @@
 * To Do
 - [X] Logs
   - [X] Suppress /health check access logs
-- [-] Title and Menu
+- [X] Title and Menu
   - [X] Rudimentary functionality
   - [X] Remove trailing separator
   - [X] Improve appearance
-  - [ ] User item points to user page
-- [ ] User preferences page, with logout link
-  - [ ] Dark mode
-  - [ ] Log out
-  - [ ] Change password
+  - [X] User item points to user page
+- [-] User preferences page, with logout link
+  - [X] Dark mode
+  - [X] Log out
+  - [X] Change password
   - [ ] Change email
 - [X] Page
   - [X] Improve appearance of user info

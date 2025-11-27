@@ -30,8 +30,8 @@
 ;; User default settings
 (defparameter *default-user-settings*
   '((:setting "dark mode" :type :boolean :value nil)
-     (:setting "items per page" :type :scalar :value 20)
-     (:setting "landing page" :type :scalar :value "/files?path=/")))
+     (:setting "items per page" :type :number :value 20)
+     (:setting "landing page" :type :string :value "/files?path=/")))
 
 ;; JWT Secret
 (defparameter *jwt-secret*
@@ -730,13 +730,9 @@ file name and returns the path to the file with a trailing slash."
           return setting)
     :value))
 
-(defun setting-exists (name)
-  (loop for setting in *default-user-settings*
-    thereis (equal (getf setting :setting) name)))
-
 (defun user-setting (user setting)
   (let ((id (when user (a:get-id *rbac* "users" user))))
-    (when (setting-exists setting)
+    (when (setting-exists *default-user-settings* setting)
       (if id
         (let ((serialized (a:get-value *rbac* "user_settings" "setting_value"
                             "user_id" id
@@ -1608,6 +1604,26 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
 
 (defparameter *last-post-parameters* nil)
 
+(defun compute-field-submission (name raw-value type default)
+  (let ((zero-length (zerop (length raw-value))))
+    (cond 
+      ((eql type :boolean) 
+        (if raw-value t nil))
+      ((and (eql type :number) (not zero-length))
+        (if (re:scan "^[0-9]+$" raw-value)
+          (read-from-string raw-value)
+          (progn
+            (u:log-it-pairs :error
+              :in "settings-do-handler"
+              :status "Invalid number submission"
+              :field name
+              :expected-type type
+              :value raw-value)
+            nil)))
+      ((and (eql type :string) (not zero-length))
+        raw-value)
+      (t default))))
+
 (h:define-easy-handler (settings-do-handler :uri "/settings-do"
                             :default-request-type :post)
   ()
@@ -1625,40 +1641,41 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         (error-page :warn "settings-do-handler" "updating settings" user
           (list :user user :allowed allowed :required-roles required-roles)
           "Authorization failed")))
-    (loop with params = (h:post-parameters*)
-      and known-keys = (mapcar 
-                         (lambda (x) (label-to-name (getf x :setting)))
-                         *default-user-settings*)
-      for setting in *default-user-settings*
+    (loop 
+      with params = (h:post-parameters*)
+      with settings = (append
+                        *default-user-settings*
+                        `((:setting "password" 
+                            :type :string :value nil)
+                           (:setting "confirm-password" 
+                             :type :string :value nil)))
+      with known-keys = (mapcar 
+                          (lambda (x) (label-to-name (getf x :setting)))
+                          settings)
+      for setting in settings
       for key = (getf setting :setting)
       for type = (getf setting :type)
-      for default = (getf setting :default)
+      for default = (getf setting :value)
       for field-name = (label-to-name key)
-      for raw-submitted-value = (cdr (assoc field-name params :test 'equal))
-      for submitted-value = (if (eql type :boolean)
-                              (if raw-submitted-value t nil)
-                              (if (and 
-                                    raw-submitted-value
-                                    (not (zerop (length raw-submitted-value))))
-                                (read-from-string raw-submitted-value)
-                                default))
-      for final-value = (if raw-submitted-value submitted-value default)
-      for is-known-setting = (when (member field-name known-keys
-                                     :test 'equal) t)
+      for raw-value = (u:trim (cdr (assoc field-name params :test 'equal)))
+      for value = (compute-field-submission key raw-value type default)
+      for final-value = (or value default)
       do (u:log-it-pairs :debug :in "settings-do-handler"
            :key key
            :type type
-           :default default
-           :raw-submitted-value raw-submitted-value
-           :submitted-value submitted-value
-           :final-value final-value
-           :is-known-setting is-known-setting)
-      when is-known-setting
-      collect (list key final-value) into settings-to-update
+           :value default
+           :raw-submitted-value raw-value
+           :submitted-value value
+           :final-value final-value)
+      collect (list :setting key :type type :value final-value)
+      into settings-to-update
       finally
-      (loop for (key value) in settings-to-update
-        do (update-user-setting user key value user)
-        appending (list key value) into updated-settings
+      (loop 
+        for new-setting in (process-settings settings-to-update)
+        for k = (getf new-setting :setting)
+        for v = (getf new-setting :value)
+        do (update-user-setting user k v user)
+        appending (list k v) into updated-settings
         finally
         (apply #'u:log-it-pairs (log-pairs-from-list
                                   (list :info :in "settings-do-handler"
@@ -1684,42 +1701,102 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
   (h:stop *http-server*)
   (setf *http-server* nil))
 
-(defun update-user-setting (user name value actor)
+(defun setting-keys (settings)
+  (mapcar (lambda (s) (getf s :setting)) settings))
+
+(defun setting-exists (settings key)
+  (when (member key (setting-keys settings) :test 'equal)) t)
+
+(defun setting-value (settings key)
+  (getf (car (remove-if-not 
+               (lambda (s) (equal key (getf s :setting)))
+               settings))
+    :value))
+
+(defun remove-setting (settings &rest keys)
+  (loop for setting in settings
+    unless (member (getf setting :setting) keys :test 'equal)
+    collect setting))
+
+(defun process-settings-password (settings)
+  (let* (errors
+          (processed 
+             (cond 
+               ((and (setting-exists settings "password")
+                  (setting-exists settings "confirm-password"))
+                 (if (equal (setting-value settings "password")
+                       (setting-value settings "confirm-password"))
+                   (remove-setting settings "confirm-password")
+                   (progn
+                     (push "Passwords don't match. Password not changed." errors)
+                     (remove-setting settings "password" "confirm-password"))))
+               ((setting-exists settings "password")
+                 (push "No confirm-password field. Password not changed." errors)
+                 (remove-setting settings "password"))
+               ((setting-exists settings "confirm-password")
+                 (push (format nil "~a ~a"
+                         "confirm-password field with no password field."
+                         "Password not changed.")
+                   errors)
+                 (remove-setting settings "confirm-password"))
+               (t settings))))
+    (values errors processed)))
+
+(defun process-settings (settings)
+  (multiple-value-bind (errors settings-pw)
+    (process-settings-password settings)
+    (when errors
+      (u:log-it-pairs :warn :in "process-settings" 
+        :status "error" :errors errors))
+    settings-pw))
+
+(defun serialize (value)
+  (format nil "~s" value))
+
+(defun update-settings-sql (key value user actor)
   (let ((user-id (a:get-id *rbac* "users" user))
-         (actor-id (a:get-id *rbac* "users" actor))
-         (sql (a:usql  "insert into user_settings
-                         (user_id, setting_key, setting_value, updated_by)
-                       values ($1, $2, $3, $4)
-                       on conflict (user_id, setting_key)
-                       do update set 
-                         setting_value = excluded.setting_value,
-                         updated_by = excluded.updated_by,
-                         updated_at = now()")))
-    (if (and user-id actor-id)
+         (actor-id (a:get-id *rbac* "users" actor)))
+    (when (and user-id actor-id)
+      (cond
+        ((equal key "password")
+          (list
+            "update users set password_hash = $1, updated_by = $2 where id = $3"
+            (a:password-hash user value) actor-id user-id))
+        ((setting-exists *default-user-settings* key)
+          (list
+            (a:usql
+              "insert into user_settings
+              (user_id, setting_key, setting_value, updated_by)
+            values ($1, $2, $3, $4)
+            on conflict (user_id, setting_key)
+            do update set 
+              setting_value = excluded.setting_value,
+              updated_by = excluded.updated_by,
+              updated_at = now()")
+            user-id key (serialize value) actor-id))
+        (t
+          (u:log-it-pairs :error :in "settings-sql"
+            :status "unknown setting" :setting key)
+          nil)))))
+
+(defun update-user-setting (user key value actor)
+  (let ((query (update-settings-sql key value user actor)))
+    (if query
       (handler-case
         (progn
-          (a:with-rbac (*rbac*)
-            (db:query sql 
-              user-id 
-              name 
-              (format nil "~s" value)
-              actor-id))
+          (a:with-rbac (*rbac*) (a:rbac-query query))
           (u:log-it-pairs :debug :in "update-user-setting" :status "success"
-            :name name :value value :actor actor :actor-id actor-id)
+            :key key :value value :user user :actor actor)
           t)
         (error (e)
           (u:log-it-pairs :error :in "update-user-setting"
             :status "fail" :error (format nil "~a" e)
-            :sql sql :user user :user-id user-id 
-            :name name :value value :serialized-value (format nil "~s" value)
-            :actor actor :actor-id actor-id)
+            :key key :value value :user user :actor actor)
           nil))
       (progn
         (u:log-it-pairs :error :in "update-user-setting"
-          :status "fail" :error "unknown user or actor, or invalid type" 
-          :user user :user-id user-id :name name
-          :value value :serialized-value (format nil "~s" value)
-          :actor actor :actor-id actor-id)
+          :status "fail" :error "unknown user, actor, or setting"
+          :key key :value value :user user :actor actor)
         nil))))
 
 (defun create-user-settings (user)
