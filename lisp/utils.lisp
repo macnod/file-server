@@ -248,6 +248,7 @@ empty string."
                     (name (label-to-name label))
                     required
                     is-password
+                    autocomplete
                     placeholder
                     value
                     class)
@@ -259,18 +260,21 @@ empty string."
         :value value
         :class (add-to-class class "text-input")
         :required required
+        :autocomplete (unless autocomplete "new-password")
         :placeholder placeholder))))
 
-(defun input-password (&key required class)
+(defun input-password (&key required class autocomplete)
   (s:with-html-string
     (:div :class "password-group"
       (:raw (input-text "Password: "
               :required required
               :is-password t
+              :autocomplete autocomplete
               :class (add-to-class "password" class)))
       (:raw (input-text "Confirm Password: "
               :required required
               :is-password t
+              :autocomplete autocomplete
               :class (add-to-class "confirm-password" class))))))
 
 (defun input-hidden (name value)

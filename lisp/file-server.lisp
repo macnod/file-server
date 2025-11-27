@@ -142,7 +142,7 @@ directory's ID if it does and NIL otherwise."
         nil))))
 
 (defun ensure-immutable-user-roles (username)
-  (loop with to-add = (set-difference 
+  (loop with to-add = (set-difference
                         (immutable-user-roles username)
                         (user-roles username)
                         :test 'equal)
@@ -161,7 +161,7 @@ directory's ID if it does and NIL otherwise."
              :page-size *max-page-size*)))
 
 (defun db-add-resource (resource &key roles)
-  (let ((all-roles (u:distinct-values 
+  (let ((all-roles (u:distinct-values
                      (append roles (list *admin-role* *system-role*)))))
     (a:d-add-resource *rbac* resource :roles all-roles)))
 
@@ -180,7 +180,7 @@ directory's ID if it does and NIL otherwise."
     (u:hash-string (format nil "~{~a~^|~}" directory-list))
     ""))
 
-(defun copy-file (source destination &key 
+(defun copy-file (source destination &key
                    (if-exists :supersede)
                    (buffer-size (* 64 1024)))
   "Copies SOURCE file to DESTINATION file. If DESTINATION's directories do not
@@ -429,7 +429,7 @@ file name and returns the path to the file with a trailing slash."
             (directory-bread-crumbs crumbs roles)
             (directory-section user path subdirs)
             (files-section files)
-            (when (and 
+            (when (and
                     (has (user-roles user) *logged-in-role*)
                     (a:user-allowed *rbac* user "create" path))
               (list
@@ -458,8 +458,8 @@ file name and returns the path to the file with a trailing slash."
     (input-form "login-form" "/login-do" "post"
       (when error-message (form-text error-message :class "error-message"))
       (input-hidden "redirect" redirect)
-      (input-text "Username: " :required t)
-      (input-text "Password: " :required t :is-password t)
+      (input-text "Username: " :required t :autocomplete t)
+      (input-text "Password: " :required t :is-password t :autocomplete t)
       (input-submit-button "Log In"))))
 
 (h:define-easy-handler (login-handler :uri "/login")
@@ -639,8 +639,8 @@ file name and returns the path to the file with a trailing slash."
                  for last-login = (readable-timestamp (getf user :last-login))
                  for roles = (when include
                                (render-edit-user-roles-link username))
-                 for checkbox = (input-checkbox "" 
-                                  :name "usernames" 
+                 for checkbox = (input-checkbox ""
+                                  :name "usernames"
                                   :value username
                                   :disabled (has fixed-users username))
                  when include
@@ -870,10 +870,10 @@ file name and returns the path to the file with a trailing slash."
                              (string-downcase (symbol-name name-sym))))
                (handler (format nil "~(~a~)" ',handler-name))
                (action (if (equal handler "upload-file-handler")
-                         (format nil "uploading ~a '~a'" 
+                         (format nil "uploading ~a '~a'"
                            ,element-name
                            (u:filename-only (second (h:parameter "file"))))
-                         (format nil "adding ~a '~a'" 
+                         (format nil "adding ~a '~a'"
                            ,element-name (h:parameter name-param))))
                (log-pairs (append
                             (list
@@ -1005,7 +1005,7 @@ directory."
           (content-type (third file))
           (new-path (absolute-file-path parent original-filename)))
     ;; ((a:get-id *rbac* "resources" (concatenate 'string parent "/"))
-    ;;   (format nil "Parent directory '~a' doesn't exist" 
+    ;;   (format nil "Parent directory '~a' doesn't exist"
     ;;     (concatenate 'string parent "/")))
     ;; ((a:user-allowed *rbac* user "create" (concatenate 'string parent "/"))
     ;;   (format nil "User '~a' not allowed to upload to '~a'" user parent))
@@ -1196,14 +1196,14 @@ directory."
                  for email = (getf user :email)
                  for created = (readable-timestamp (getf user :created-at))
                  for last-login = (readable-timestamp (getf user :last-login))
-                 for other-roles = (exclude 
+                 for other-roles = (exclude
                                      (user-list-user-roles username)
                                      role)
                  for checkbox = (input-checkbox ""
                                   :name "usernames"
                                   :value username
                                   :disabled (equal *admin* username))
-                 collect (list username email created last-login other-roles 
+                 collect (list username email created last-login other-roles
                            checkbox))))
     (input-form "delete-role-users-form" "/delete-role-users" "post"
       (s:with-html-string
@@ -1582,6 +1582,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
             collect field into fields
             finally (return (join-html fields)))
           (input-password)
+          (input-text "email")
           (input-submit-button "Apply Changes")
           (s:with-html-string
             (:div :class "logout-link"
@@ -1590,24 +1591,36 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         :subtitle "Settings"))))
 
 (defun log-pairs-from-post-parameters (starting-list)
+  "Creates a plist from Hunchentoot's current POST parameters, appends
+STARTING-LIST to that, and returns the result. This is convenient when
+calling U:LOGIT-PAIRS from an HTTP request handler."
   (loop for (key . value) in (h:post-parameters*)
     for keyword = (intern (string-upcase (label-to-name key)) "KEYWORD")
     append (list keyword value) into pairs
     finally (return (append starting-list pairs))))
 
+(defun remove-null-plist-values (plist)
+  "Removes key/value pairs from PLIST when the value is NIL."
+  (loop
+    for key in plist by #'cddr
+    for value in (cdr plist) by #'cddr
+    when value
+    append (list key value)))
+
 (defun log-pairs-from-list (starting-list list)
-  (loop for key in list by #'cddr
+  (loop
+    for key in list by #'cddr
     for value in (cdr list) by #'cddr
     for keyword = (intern (string-upcase (label-to-name key)) "KEYWORD")
     append (list keyword value) into pairs
-    finally (return (append starting-list pairs))))
+    finally (return (append (remove-null-plist-values starting-list) pairs))))
 
 (defparameter *last-post-parameters* nil)
 
 (defun compute-field-submission (name raw-value type default)
   (let ((zero-length (zerop (length raw-value))))
-    (cond 
-      ((eql type :boolean) 
+    (cond
+      ((eql type :boolean)
         (if raw-value t nil))
       ((and (eql type :number) (not zero-length))
         (if (re:scan "^[0-9]+$" raw-value)
@@ -1623,6 +1636,13 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       ((and (eql type :string) (not zero-length))
         raw-value)
       (t default))))
+
+(defun include-user-table-settings ()
+  (append
+    *default-user-settings*
+    `((:setting "password" :type :string :value nil)
+       (:setting "confirm-password" :type :string :value nil)
+       (:setting "email" :type :string :value nil))))
 
 (h:define-easy-handler (settings-do-handler :uri "/settings-do"
                             :default-request-type :post)
@@ -1641,15 +1661,10 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         (error-page :warn "settings-do-handler" "updating settings" user
           (list :user user :allowed allowed :required-roles required-roles)
           "Authorization failed")))
-    (loop 
+    (loop
       with params = (h:post-parameters*)
-      with settings = (append
-                        *default-user-settings*
-                        `((:setting "password" 
-                            :type :string :value nil)
-                           (:setting "confirm-password" 
-                             :type :string :value nil)))
-      with known-keys = (mapcar 
+      with settings = (include-user-table-settings)
+      with known-keys = (mapcar
                           (lambda (x) (label-to-name (getf x :setting)))
                           settings)
       for setting in settings
@@ -1670,21 +1685,26 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       collect (list :setting key :type type :value final-value)
       into settings-to-update
       finally
-      (loop 
-        for new-setting in (process-settings settings-to-update)
+      (multiple-value-bind (errors new-settings)
+        (process-settings settings-to-update)
+      (loop
+        for new-setting in new-settings
         for k = (getf new-setting :setting)
         for v = (getf new-setting :value)
         do (update-user-setting user k v user)
         appending (list k v) into updated-settings
         finally
-        (apply #'u:log-it-pairs (log-pairs-from-list
-                                  (list :info :in "settings-do-handler"
-                                    :status "settings updated" :user user)
-                                  updated-settings))
-        (h:redirect 
+        (apply #'u:log-it-pairs
+          (log-pairs-from-list
+            (list :info :in "settings-do-handler"
+              :status (if errors "some settings updated" "settings updated")
+              :errors errors
+              :user user)
+            updated-settings))
+        (h:redirect
           (add-to-url-query "/settings" "message" "Settings updated")
-          :protocol :https)))))
-      
+          :protocol :https))))))
+
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
                         :port *http-port*
@@ -1708,10 +1728,18 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
   (when (member key (setting-keys settings) :test 'equal)) t)
 
 (defun setting-value (settings key)
-  (getf (car (remove-if-not 
+  (getf (car (remove-if-not
                (lambda (s) (equal key (getf s :setting)))
                settings))
     :value))
+
+(defun put-setting (settings key value)
+  (if (setting-exists settings key)
+    (loop for setting in settings
+      for setting-key = (getf setting :setting)
+      when (equal setting-key key)
+      do (setf (getf setting :value) value)
+      finally (return settings))))
 
 (defun remove-setting (settings &rest keys)
   (loop for setting in settings
@@ -1720,8 +1748,8 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
 
 (defun process-settings-password (settings)
   (let* (errors
-          (processed 
-             (cond 
+          (processed
+             (cond
                ((and (setting-exists settings "password")
                   (setting-exists settings "confirm-password"))
                  (if (equal (setting-value settings "password")
@@ -1742,13 +1770,30 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                (t settings))))
     (values errors processed)))
 
+(defun process-settings-email (settings)
+  (let* (errors
+          (processed
+            (if (setting-exists settings "email")
+              (if (a:valid-email-p *rbac* (setting-value settings "email"))
+                settings
+                (progn
+                  (push "Invalid email. Email not changed." errors)
+                  (remove-setting settings "email")))
+              settings)))
+    (values errors processed)))
+
 (defun process-settings (settings)
-  (multiple-value-bind (errors settings-pw)
-    (process-settings-password settings)
-    (when errors
-      (u:log-it-pairs :warn :in "process-settings" 
-        :status "error" :errors errors))
-    settings-pw))
+  (loop
+    with settings-processors = (list
+                                 #'process-settings-password
+                                 #'process-settings-email)
+    for processor in settings-processors
+    for current-settings = settings then new-settings
+    for (errors new-settings) = (multiple-value-bind (errors psettings)
+                                  (funcall processor current-settings)
+                                  (list errors psettings))
+    when errors collect errors into all-errors
+    finally (return (values all-errors new-settings))))
 
 (defun serialize (value)
   (format nil "~s" value))
@@ -1769,7 +1814,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
               (user_id, setting_key, setting_value, updated_by)
             values ($1, $2, $3, $4)
             on conflict (user_id, setting_key)
-            do update set 
+            do update set
               setting_value = excluded.setting_value,
               updated_by = excluded.updated_by,
               updated_at = now()")
@@ -1806,8 +1851,8 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                              :status "unknown user" :user user)
                            (return-from create-user-settings nil)))
     for setting in *default-user-settings*
-    for exists = (a:get-value *rbac* "user_settings" "id" 
-                   "user_id" user-id 
+    for exists = (a:get-value *rbac* "user_settings" "id"
+                   "user_id" user-id
                    "setting_key" (getf setting :setting))
     unless exists
     do (update-user-setting user (car setting) (cadr setting) *admin*)
@@ -1834,7 +1879,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
       :description "The administrative role."))
   ;; Add admin user if they don't exist
   (unless (a:get-id *rbac* *users-table* *admin*)
-    (db-add-user *admin* *admin-password* "no-email" 
+    (db-add-user *admin* *admin-password* "no-email"
       (list *admin-role*)))
   ;; Add the guest user if they don't exist
   (unless (a:get-id *rbac* *users-table* *guest*)
