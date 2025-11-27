@@ -874,14 +874,16 @@ file name and returns the path to the file with a trailing slash."
                            ,element-name
                            (u:filename-only (second (h:parameter "file"))))
                          (format nil "adding ~a '~a'"
-                           ,element-name (h:parameter name-param))))
+                           ,element-name name-param)))
                (log-pairs (append
                             (list
                               :debug
                               :in handler
                               :user user
                               :allowed allowed
-                              :required-roles required-roles)
+                              :required-roles required-roles
+                              :name-sym name-sym
+                              :name-param name-param)
                             (list ,@(loop
                                       for spec in http-parameters
                                       for var = (if (listp spec) (first spec) spec)
@@ -1807,6 +1809,10 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
           (list
             "update users set password_hash = $1, updated_by = $2 where id = $3"
             (a:password-hash user value) actor-id user-id))
+        ((equal key "email")
+          (list
+            "update users set email = $1, updated_by = $2 where id = $3"
+            value actor-id user-id))
         ((setting-exists *default-user-settings* key)
           (list
             (a:usql
