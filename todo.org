@@ -6,11 +6,11 @@
   - [X] Remove trailing separator
   - [X] Improve appearance
   - [X] User item points to user page
-- [-] User preferences page, with logout link
+- [X] User preferences page, with logout link
   - [X] Dark mode
   - [X] Log out
   - [X] Change password
-  - [ ] Change email
+  - [X] Change email
 - [X] Page
   - [X] Improve appearance of user info
 - [X] Files Page
