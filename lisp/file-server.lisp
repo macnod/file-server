@@ -879,6 +879,7 @@ file name and returns the path to the file with a trailing slash."
                             (list
                               :debug
                               :in handler
+                              :index 1
                               :user user
                               :allowed allowed
                               :required-roles required-roles
