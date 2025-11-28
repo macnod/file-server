@@ -33,3 +33,4 @@ pg-data-dev
 
 # Makefile
 *.installed
+*/kube/rendered-manifests.yaml

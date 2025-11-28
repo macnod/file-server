@@ -1,4 +1,5 @@
 (in-package :file-server)
+(setf *readtable-case* :upcase)
 
 ;; Database
 (defparameter *db-host* (u:getenv "DB_HOST" :default "localhost"))
@@ -86,14 +87,20 @@
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
        (session-user ',required-roles)
-
        (let* ((param-specs ',http-parameters)
-               (name-sym (cond
-                           ((null param-specs)
-                             (error "http-parameters empty"))
-                           ((listp (first param-specs))
-                             (first (first param-specs)))
-                           (t (first param-specs))))
+               (name-sym (progn
+                           (format t "DEBUG: ~S ~S ~S~%"
+                             param-specs
+                             (first param-specs)
+                             (when (first param-specs)
+                               (list (type-of (first param-specs))
+                                 (symbol-name (first param-specs)))))
+                           (cond
+                             ((null param-specs)
+                               (error "http-parameters empty"))
+                             ((listp (first param-specs))
+                               (first (first param-specs)))
+                             (t (first param-specs)))))
                (name-param (h:parameter
                              (string-downcase (symbol-name name-sym))))
                (handler (format nil "~(~a~)" ',handler-name))
