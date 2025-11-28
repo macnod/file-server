@@ -72,9 +72,160 @@
 (defparameter *max-page-size* 1000)
 
 ;;
-;; Custom Hunchentoot acceptor, for log-it logging
+;; BEGIN Macros
+;;
+(defmacro define-add-handler
+  ;; *admin-role* is not available during compilation, we we're using
+  ;; its value directly here.
+  ((handler-name uri &key (required-roles (list "admin")))
+    http-parameters
+    (&rest validation-clauses)
+    add-function
+    element-name)
+  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :post)
+     ,http-parameters
+     (multiple-value-bind (user allowed required-roles)
+       (session-user ',required-roles)
+
+       (let* ((param-specs ',http-parameters)
+               (name-sym (cond
+                           ((null param-specs)
+                             (error "http-parameters empty"))
+                           ((listp (first param-specs))
+                             (first (first param-specs)))
+                           (t (first param-specs))))
+               (name-param (h:parameter
+                             (string-downcase (symbol-name name-sym))))
+               (handler (format nil "~(~a~)" ',handler-name))
+               (action (if (equal handler "upload-file-handler")
+                         (format nil "uploading ~a '~a'"
+                           ,element-name
+                           (u:filename-only (second (h:parameter "file"))))
+                         (format nil "adding ~a '~a'"
+                           ,element-name name-param)))
+               (log-pairs (append
+                            (list
+                              :debug
+                              :in handler
+                              :index 1
+                              :user user
+                              :allowed allowed
+                              :required-roles required-roles
+                              :name-sym name-sym
+                              :name-param name-param)
+                            (list ,@(loop
+                                      for spec in http-parameters
+                                      for var = (if (listp spec) (first spec) spec)
+                                      for kw = (intern (string-upcase var) "KEYWORD")
+                                      collect kw
+                                      collect var)))))
+
+         ;; Log the request
+         (apply #'u:log-it-pairs log-pairs)
+
+         ;; Authorization
+         (unless allowed
+           (setf (h:return-code*) h:+http-forbidden+)
+           (return-from ,handler-name
+             (error-page :warn handler
+               action
+               user
+               (list :user user :allowed allowed :required-roles required-roles)
+               "Authorization failed")))
+
+         ;; Validation
+         ,@(loop for (test msg) in validation-clauses
+             collect `(unless ,test
+                        (return-from ,handler-name
+                          (error-page :warn handler
+                            action user nil ,msg))))
+
+         ;; Add the element
+         (handler-case
+           (let ((id (handler-case
+                       ,add-function
+                       (error (e)
+                         (return-from ,handler-name
+                           (error-page :error handler
+                             action user nil (format nil "~a" e)))))))
+             (unless id
+               (return-from ,handler-name
+                 (error-page :error handler
+                   action user nil
+                   "Failed to add ~a '~a'" ,element-name name-param)))
+             (success-page user "Success ~a." action))
+           (error (e)
+             (error-page :error handler action user nil (format nil "~a" e))))))))
+
+(defmacro define-list-handler
+  ;; *admin-role* is not available during compilation, we we're using
+  ;; its value directly here.
+  ((handler-name uri &key (required-roles (list "admin")))
+    http-parameters
+    render-list-function
+    list-count-function
+    render-new-form-function
+    list-name)
+  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :get)
+     ,http-parameters
+     (multiple-value-bind (user allowed required-roles)
+       (session-user ',required-roles)
+
+       (let* ((action (format nil "listing ~a" ',list-name))
+               (handler (format nil "~(~a~)" ',handler-name))
+               (log-pairs (append
+                            (list
+                              :debug
+                              :in handler
+                              :user user
+                              :allowed allowed
+                              :required-roles required-roles)
+                            (list ,@(loop
+                                      for spec in http-parameters
+                                      for var = (if (listp spec) (first spec) spec)
+                                      for kw = (intern (string-upcase var) "KEYWORD")
+                                      collect kw
+                                      collect var)))))
+
+         ;; Log the request
+         (apply #'u:log-it-pairs log-pairs)
+
+         ;; Authorization
+         (unless allowed
+           (return-from ,handler-name
+             (error-page :warn handler action user
+               (list :allowed allowed :required-roles required-roles)
+               "Authorization failed")))
+
+         ;; Is the method GET?
+         (unless (eql (h:request-method*) :get)
+           (return-from ,handler-name
+             (error-page :warn handler
+               action user
+               (list :method (h:request-method*)
+                 :allowed allowed
+                 :reason "HTTP method not supported"
+                 :required-roles required-roles)
+               "Method not allowed")))
+
+         ;; Assemble page
+         (page
+           (s:with-html-string
+             (:div :class (format nil "~a-list" (label-to-name ,list-name))
+               (:raw ,render-list-function)
+               (:raw (render-pager
+                       (car (re:split "\\?" (h:request-uri*)))
+                       page page-size ,list-count-function))
+               (:raw ,render-new-form-function)))
+           :user user
+           :subtitle (format nil "List ~@(~a~)" ,list-name))))))
+;;
+;; END Macros
 ;;
 
+;;
+;; Custom Hunchentoot acceptor, for log-it logging
+;;
 (defclass fs-acceptor (h:easy-acceptor)
   ())
 
@@ -846,89 +997,6 @@ file name and returns the path to the file with a trailing slash."
       :description desc)
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
 
-(defmacro define-add-handler
-  ;; *admin-role* is not available during compilation, we we're using
-  ;; its value directly here.
-  ((handler-name uri &key (required-roles (list "admin")))
-    http-parameters
-    (&rest validation-clauses)
-    add-function
-    element-name)
-  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :post)
-     ,http-parameters
-     (multiple-value-bind (user allowed required-roles)
-       (session-user ',required-roles)
-
-       (let* ((param-specs ',http-parameters)
-               (name-sym (cond
-                           ((null param-specs)
-                             (error "http-parameters empty"))
-                           ((listp (first param-specs))
-                             (first (first param-specs)))
-                           (t (first param-specs))))
-               (name-param (h:parameter
-                             (string-downcase (symbol-name name-sym))))
-               (handler (format nil "~(~a~)" ',handler-name))
-               (action (if (equal handler "upload-file-handler")
-                         (format nil "uploading ~a '~a'"
-                           ,element-name
-                           (u:filename-only (second (h:parameter "file"))))
-                         (format nil "adding ~a '~a'"
-                           ,element-name name-param)))
-               (log-pairs (append
-                            (list
-                              :debug
-                              :in handler
-                              :index 1
-                              :user user
-                              :allowed allowed
-                              :required-roles required-roles
-                              :name-sym name-sym
-                              :name-param name-param)
-                            (list ,@(loop
-                                      for spec in http-parameters
-                                      for var = (if (listp spec) (first spec) spec)
-                                      for kw = (intern (string-upcase var) "KEYWORD")
-                                      collect kw
-                                      collect var)))))
-
-         ;; Log the request
-         (apply #'u:log-it-pairs log-pairs)
-
-         ;; Authorization
-         (unless allowed
-           (setf (h:return-code*) h:+http-forbidden+)
-           (return-from ,handler-name
-             (error-page :warn handler
-               action
-               user
-               (list :user user :allowed allowed :required-roles required-roles)
-               "Authorization failed")))
-
-         ;; Validation
-         ,@(loop for (test msg) in validation-clauses
-             collect `(unless ,test
-                        (return-from ,handler-name
-                          (error-page :warn handler
-                            action user nil ,msg))))
-
-         ;; Add the element
-         (handler-case
-           (let ((id (handler-case
-                       ,add-function
-                       (error (e)
-                         (return-from ,handler-name
-                           (error-page :error handler
-                             action user nil (format nil "~a" e)))))))
-             (unless id
-               (return-from ,handler-name
-                 (error-page :error handler
-                   action user nil
-                   "Failed to add ~a '~a'" ,element-name name-param)))
-             (success-page user "Success ~a." action))
-           (error (e)
-             (error-page :error handler action user nil (format nil "~a" e))))))))
-
 (define-add-handler (add-user-handler "/add-user")
   (username email password confirm-password
     (new-roles :real-name "roles" :parameter-type '(list string)))
@@ -1102,69 +1170,6 @@ directory."
         (u:log-it-pairs :warn :in "login"
           :status "login failed" :user username)
         nil))))
-
-(defmacro define-list-handler
-  ;; *admin-role* is not available during compilation, we we're using
-  ;; its value directly here.
-  ((handler-name uri &key (required-roles (list "admin")))
-    http-parameters
-    render-list-function
-    list-count-function
-    render-new-form-function
-    list-name)
-  `(h:define-easy-handler (,handler-name :uri ,uri :default-request-type :get)
-     ,http-parameters
-     (multiple-value-bind (user allowed required-roles)
-       (session-user ',required-roles)
-
-       (let* ((action (format nil "listing ~a" ',list-name))
-               (handler (format nil "~(~a~)" ',handler-name))
-               (log-pairs (append
-                            (list
-                              :debug
-                              :in handler
-                              :user user
-                              :allowed allowed
-                              :required-roles required-roles)
-                            (list ,@(loop
-                                      for spec in http-parameters
-                                      for var = (if (listp spec) (first spec) spec)
-                                      for kw = (intern (string-upcase var) "KEYWORD")
-                                      collect kw
-                                      collect var)))))
-
-         ;; Log the request
-         (apply #'u:log-it-pairs log-pairs)
-
-         ;; Authorization
-         (unless allowed
-           (return-from ,handler-name
-             (error-page :warn handler action user
-               (list :allowed allowed :required-roles required-roles)
-               "Authorization failed")))
-
-         ;; Is the method GET?
-         (unless (eql (h:request-method*) :get)
-           (return-from ,handler-name
-             (error-page :warn handler
-               action user
-               (list :method (h:request-method*)
-                 :allowed allowed
-                 :reason "HTTP method not supported"
-                 :required-roles required-roles)
-               "Method not allowed")))
-
-         ;; Assemble page
-         (page
-           (s:with-html-string
-             (:div :class (format nil "~a-list" (label-to-name ,list-name))
-               (:raw ,render-list-function)
-               (:raw (render-pager
-                       (car (re:split "\\?" (h:request-uri*)))
-                       page page-size ,list-count-function))
-               (:raw ,render-new-form-function)))
-           :user user
-           :subtitle (format nil "List ~@(~a~)" ,list-name))))))
 
 (define-list-handler (list-roles-handler "/list-roles")
   ((page :parameter-type 'integer :init-form 1)

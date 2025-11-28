@@ -85,7 +85,7 @@ spec:
       terminationGracePeriodSeconds: 60
       containers:
         - name: file-server
-          image: macnod/file-server:0.0.29
+          image: macnod/file-server:0.0.30
           imagePullPolicy: Never
           command: ["ros"]
           args:
@@ -117,7 +117,7 @@ spec:
           #   failureThreshold: 3
           env:
             - name: FILE_MANAGER_VERSION
-              value: "0.0.29"
+              value: "0.0.30"
             - name: FILE_MANAGER_ENVIRONMENT
               value: "dev"
             - name: DB_HOST
