@@ -116,7 +116,7 @@
                        ,element-name
                        (u:filename-only (second (h:parameter "file"))))
                      (format nil "adding ~a '~a'"
-                       ,element-name name-param)))))
+                       ,element-name name-param))))
                (log-pairs (append
                             (list
                               :debug

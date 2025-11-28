@@ -21,6 +21,7 @@ function usage {
     echo "  --no-deploy    Build the container image, but don't deploy."
     echo "  --push         Push the container to a container registry (CR)."
     echo "                 Must be logged into the CR."
+    echo "  --verbose      Show docker build output."
     echo "  --help         Display this help screen."
     echo
     echo "Notes:"
@@ -40,6 +41,7 @@ VALUES_FILE=""
 RENDERED_MANIFESTS=""
 DOCKERFILE=""
 LATEST=false
+VERBOSE=false
 
 load_version
 
@@ -71,6 +73,9 @@ while [ $# -gt 0 ]; do
             ;;
         --push)
             PUSH=true
+            ;;
+        --verbose)
+            VERBOSE=true
             ;;
         --help)
             usage
@@ -133,7 +138,13 @@ if [[ "$NO_BUILD" = false ]]; then
     else
         CACHE_OPTION="--build-arg CACHEBUST=$(date +%s)"
     fi
-    docker build -qf "$DOCKERFILE" \
+    # Select the right option for build output
+    if [[ "$VERBOSE" = true ]]; then
+        QUIET=""
+    else
+        QUIET="-q"
+    fi
+    docker build ${QUIET} -f "$DOCKERFILE" \
         $CACHE_OPTION \
         -t "macnod/${IMAGE}:${VERSION}" \
         -t "macnod/${IMAGE}:latest" \
