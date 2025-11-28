@@ -35,19 +35,11 @@ spec:
             - containerPort: 4005
           resources:
             requests:
-              memory: "{{ .Values.fileServer.memory }}"
-              cpu: "{{ .Values.fileServer.requests.cpu }}"
+              memory: {{ .Values.fileServer.memory | quote }}
+              cpu: {{ .Values.fileServer.requests.cpu | quote }}
             limits:
-              memory: "{{ .Values.fileServer.memory }}"
-              cpu: "{{ .Values.fileServer.limits.cpu }}"
-          # livenessProbe:
-          #   httpGet:
-          #     path: /health
-          #     port: 8080
-          #   initialDelaySeconds: 30
-          #   periodSeconds: 30
-          #   timeoutSeconds: 10
-          #   failureThreshold: 3
+              memory: {{ .Values.fileServer.memory | quote }}
+              cpu: {{ .Values.fileServer.limits.cpu | quote }}
           env:
             - name: FILE_MANAGER_VERSION
               value: {{ .Values.image.tag | quote }}
@@ -56,7 +48,7 @@ spec:
             - name: DB_HOST
               value: postgres-{{ .Values.environment }}-service
             - name: DB_PORT
-              value: "{{ .Values.postgres.port }}"
+              value: {{ .Values.postgres.port | quote }}
             - name: DB_NAME
               value: "fileserver"
             - name: DB_USER
