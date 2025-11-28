@@ -1,5 +1,7 @@
 (in-package :file-server)
-(setf *readtable-case* :upcase)
+(declaim (special *readtable-case*))
+(eval-when (:compile-toplevel :load-toplevel :execute)
+  (setf *readtable-case* :upcase))
 
 ;; Database
 (defparameter *db-host* (u:getenv "DB_HOST" :default "localhost"))
