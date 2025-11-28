@@ -116,7 +116,7 @@
                        ,element-name
                        (u:filename-only (second (h:parameter "file"))))
                      (format nil "adding ~a '~a'"
-                       ,element-name name-param))))
+                       ,element-name name-param)))))
                (log-pairs (append
                             (list
                               :debug
@@ -903,7 +903,7 @@ file name and returns the path to the file with a trailing slash."
                             "user_id" id
                             "setting_key" setting)))
           (if serialized
-            (read-from-string serialized)
+            (deserialize serialized)
             (default-setting setting)))
         (default-setting setting)))))
 
@@ -1596,7 +1596,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
         (input-form "settings-form" "/settings-do" "post"
           (when message (form-text message :class "settings-message"))
           (loop for (key serialized-value) in settings
-            for value = (read-from-string serialized-value)
+            for value = (deserialize serialized-value)
             for display-key = (format nil "~a:" key)
             for field = (if (member value '(t nil))
                           (input-checkbox-pre display-key :checked value)
@@ -1646,7 +1646,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         (if raw-value t nil))
       ((and (eql type :number) (not zero-length))
         (if (re:scan "^[0-9]+$" raw-value)
-          (read-from-string raw-value)
+          (deserialize raw-value)
           (progn
             (u:log-it-pairs :error
               :in "settings-do-handler"
@@ -1819,6 +1819,10 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
 
 (defun serialize (value)
   (format nil "~s" value))
+
+(defun deserialize (serialized)
+  (let ((cl:*read-eval* nil))
+    (read-from-string serialized)))
 
 (defun update-settings-sql (key value user actor)
   (let ((user-id (a:get-id *rbac* "users" user))
