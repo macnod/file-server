@@ -35,11 +35,11 @@ spec:
             - containerPort: 4005
           resources:
             requests:
-              memory: "4Gi"
-              cpu: "250m"
+              memory: {{ .Values.fileServer.memory }}
+              cpu: {{ .Values.fileServer.requests.cpu }}
             limits:
-              memory: "4Gi"
-              cpu: "1000m"
+              memory: {{ .Values.fileServer.memory }}
+              cpu: {{ .Values.fileServer.limits.cpu }}
           # livenessProbe:
           #   httpGet:
           #     path: /health

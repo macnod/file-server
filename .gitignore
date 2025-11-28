@@ -33,4 +33,7 @@ pg-data-dev
 
 # Makefile
 *.installed
-*/kube/rendered-manifests.yaml
+
+# Helm
+prod/kube/rendered-manifests.yaml
+dev/kube/rendered-manifests.yaml
