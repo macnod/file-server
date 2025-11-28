@@ -36,6 +36,8 @@ This software runs in a Kubernetes cluster. It uses one pod for PostgreSQL and a
 
 During development, you use Slime or some such to connect your code editor to the running Lisp image in the Kubernetes pod, then modify the code. As you work on the code, you can see results immediately in the server (without having to reload code or restart the server). This is normal in Common Lisp development, and allows for rapid-iteration development.
 
+You must develop in the dev branch.
+
 ## Build
 To build and deploy the system, use the scripts/build.sh script. Run it from the repo's root like this:
 
@@ -45,11 +47,15 @@ scripts/build.sh
 
 That deploys to the development environment, for example https:/files-dev.sinistercode.com.
 
-When you're happy with the code you've developed, you can move it to production like this:
+To deploy to the development environment, you must be in branch `dev`.
+
+When you're happy with the code you've developed, you can move it to production by merging your code to master, switching to the master branch, then running this:
 
 ```sh
 scripts/build.sh --env prod --latest
 ```
+
+To deploy to master (`--env prod`), you must be in branch `master`.
 
 That basically updates the production version to whatever the latest development version is and deploys the version to production.
 

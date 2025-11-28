@@ -10,7 +10,9 @@ function usage {
     echo 
     echo "This script builds the docker containers for file-server and"
     echo "and postgres, then uses Helm Charts to deploy to the specified"
-    echo "environment."
+    echo "environment. To build for the dev environment (default), you"
+    echo "must be in branch dev. To build for the prod environment, you"
+    echo "must be in branch master."
     echo
     echo "Options:"
     echo "  --env          The environment: prod or dev"
@@ -84,6 +86,19 @@ while [ $# -gt 0 ]; do
     esac
     shift
 done
+
+# Branch check
+CURRENT_BRANCH=$(git branch --show-current)
+if [[ "$ENVIRONMENT" == "dev" ]]; then
+    EXPECTED_BRANCH="dev"
+else
+    EXPECTED_BRANCH="master"
+fi
+if [[ "$CURRENT_BRANCH" != "$EXPECTED_BRANCH" ]]; then
+    echo "Cannot deploy to '$ENVIRONMENT' from branch '$CURRENT_BRANCH'."
+    echo "Expected branch '$EXPECTED_BRANCH'."
+    exit 1
+fi
 
 # For --env, only dev or prod allowed
 if [[ "$ENVIRONMENT" = "prod" ]]; then
