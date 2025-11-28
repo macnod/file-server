@@ -89,7 +89,7 @@
        (session-user ',required-roles)
        (let* ((param-specs ',http-parameters)
                (name-sym (progn
-                           (u:log-it :debug "GROK: ~S ~S ~S"
+                           (format *log-file* "GROK: ~S ~S ~S~%"
                              param-specs
                              (first param-specs)
                              (when (first param-specs)
