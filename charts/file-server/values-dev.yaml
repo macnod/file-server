@@ -11,11 +11,11 @@ image:
 fileServer:
   port: 3021
   nodePort: 30211
-  memory: "4gi"
+  memory: 4Gi
   requests:
-    cpu: "250m"
+    cpu: 250m
   limits:
-    cpu: "1000m"
+    cpu: 1000m
 
 swankServer:
   port: 4106

@@ -117,7 +117,7 @@ if [[ "$ENVIRONMENT" = "prod" ]]; then
         fi
     fi
 elif [[ "$ENVIRONMENT" = "dev" ]]; then
-    if [[ "$REDEPLOY" = false || "$NO_BUILD" = false ]]; then
+    if [[ "$REDEPLOY" = false && "$NO_BUILD" = false && "$RENDER_ONLY" = false ]]; then
         increment_version
     fi
     VERSION="$DEV_VERSION"
@@ -158,6 +158,7 @@ if [[ "$NO_BUILD" = false ]]; then
         QUIET=""
     else
         QUIET="-q"
+        echo "Building macnod/${IMAGE}:${VERSION}..."
     fi
     docker build ${QUIET} -f "$DOCKERFILE" \
         $CACHE_OPTION \
