@@ -116,7 +116,7 @@
                             (list ,@(loop
                                       for spec in http-parameters
                                       for var = (if (listp spec) (first spec) spec)
-                                      for kw = (intern (string-upcase var) "KEYWORD")
+                                      for kw = (intern (string-upcase (symbol-name var)) "KEYWORD")
                                       collect kw
                                       collect var)))))
 
