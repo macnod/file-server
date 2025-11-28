@@ -87,22 +87,15 @@
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
        (session-user ',required-roles)
-       (let* ((param-specs ',http-parameters)
-               (name-sym (progn
-                           (format *log-file* "GROK: ~S ~S ~S~%"
-                             param-specs
-                             (first param-specs)
-                             (when (first param-specs)
-                               (list (type-of (first param-specs))
-                                 (symbol-name (first param-specs)))))
-                           (cond
-                             ((null param-specs)
-                               (error "http-parameters empty"))
-                             ((listp (first param-specs))
-                               (first (first param-specs)))
-                             (t (first param-specs)))))
-               (name-param (h:parameter
-                             (string-downcase (symbol-name name-sym))))
+       (let* ((first-spec (first ',http-parameters))
+               (name-sym (cond
+                           ((null first-spec)
+                             (error "http-parameters empty"))
+                           ((listp first-spec)
+                             (first first-spec))
+                           (t first-spec)))
+               (param-name (string-downcase (symbol-name name-sym)))
+               (name-param (h:parameter param-name))
                (handler (format nil "~(~a~)" ',handler-name))
                (action (if (equal handler "upload-file-handler")
                          (format nil "uploading ~a '~a'"
