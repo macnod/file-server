@@ -87,6 +87,8 @@
      ,http-parameters
      (multiple-value-bind (user allowed required-roles)
        (session-user ',required-roles)
+       (format *log-file* "GROK-ENTRY: ~S *log-file* ~S~%" ',required-roles *log-file*)
+       (force-output *log-file*)
        (let* ((first-spec (first ',http-parameters))
                (name-sym (cond
                            ((null first-spec)
@@ -95,14 +97,24 @@
                              (first first-spec))
                            (t first-spec)))
                (param-name (string-downcase (symbol-name name-sym)))
-               (name-param (h:parameter param-name))
+               (name-param
+                 (progn
+                   (format *log-file* "GROK-PARAM: name-sym ~s (symbol-name ~s)~%"
+                     name-sym (symbol-name name-sym))
+                   (force-output *log-file*)
+                   (h:parameter param-name)))
                (handler (format nil "~(~a~)" ',handler-name))
-               (action (if (equal handler "upload-file-handler")
-                         (format nil "uploading ~a '~a'"
-                           ,element-name
-                           (u:filename-only (second (h:parameter "file"))))
-                         (format nil "adding ~a '~a'"
-                           ,element-name name-param)))
+               (action
+                 (progn
+                   (format *log-file* "GROK-ACTION: handler ~s name-param ~s~%"
+                     handler name-param)
+                   (force-output *log-file*)
+                   (if (equal handler "upload-file-handler")
+                     (format nil "uploading ~a '~a'"
+                       ,element-name
+                       (u:filename-only (second (h:parameter "file"))))
+                     (format nil "adding ~a '~a'"
+                       ,element-name name-param))))
                (log-pairs (append
                             (list
                               :debug
