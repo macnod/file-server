@@ -113,12 +113,15 @@
                               :required-roles required-roles
                               :name-sym name-sym
                               :name-param name-param)
-                            (list ,@(loop
-                                      for spec in http-parameters
-                                      for var = (if (listp spec) (first spec) spec)
-                                      for kw = (intern (string-upcase (symbol-name var)) "KEYWORD")
-                                      collect kw
-                                      collect var)))))
+                            (list
+                              ,@(loop
+                                  for spec in http-parameters
+                                  for var = (if (listp spec) (first spec) spec)
+                                  for kw = (intern
+                                             (string-upcase (symbol-name var))
+                                             "KEYWORD")
+                                  collect kw
+                                  collect var)))))
 
          ;; Log the request
          (apply #'u:log-it-pairs log-pairs)

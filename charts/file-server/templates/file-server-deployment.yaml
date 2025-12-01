@@ -2,6 +2,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: file-server-{{ .Values.environment }}-deployment
+  app: file-server-{{ .Values.environment }}
   namespace: {{ .Values.namespace }}
 spec:
   replicas: 1
