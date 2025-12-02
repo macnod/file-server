@@ -245,7 +245,8 @@
     (unless (and health-log *log-suppress-health*)
       (u:log-it-pairs log-severity
         :type "access"
-        :remote (h:remote-addr*)
+        :client (h:real-remote-addr)
+        :hop (h:remote-addr*)
         :server (h:local-addr*)
         :host (h:host)
         :method (h:request-method*)
@@ -333,42 +334,6 @@ directory's ID if it does and NIL otherwise."
   (if directory-list
     (u:hash-string (format nil "~{~a~^|~}" directory-list))
     ""))
-
-(defun copy-file (source destination &key
-                   (if-exists :supersede)
-                   (buffer-size (* 64 1024)))
-  "Copies SOURCE file to DESTINATION file. If DESTINATION's directories do not
-exist, they are created. IF-EXISTS controls the behavior if DESTINATION already
-exists, and may be :error, :new-version, :rename, :rename-and-delete,
-:overwrite, :append, or :supersede. IF-EXISTS defaults to :supersede.
-BUFFER-SIZE controls the size of the buffer used during the copy operation, and
-defaults to 64 KB. Returns the DESTINATION path."
-  (when (stringp source)
-    (setf source (pathname source)))
-  (when (stringp destination)
-    (setf destination (pathname destination)))
-  (ensure-directories-exist destination)
-  (with-open-file (in source
-                      :direction :input
-                      :element-type '(unsigned-byte 8)
-                      :if-does-not-exist :error)
-    (with-open-file (out destination
-                        :direction :output
-                        :element-type '(unsigned-byte 8)
-                        :if-exists if-exists)
-      (let ((buf (make-array buffer-size :element-type '(unsigned-byte 8))))
-        (loop
-          (let ((pos (read-sequence buf in)))
-            (when (zerop pos)
-              (return))
-            (write-sequence buf out :end pos))))))
-
-  ;; Preserve modification time in a portable way (optional but nice)
-  (let ((mtime (file-write-date source)))
-    (when mtime
-      (ignore-errors
-        (sb-posix:utimes (namestring destination) mtime mtime))))
-  destination)
 
 (defun sync-directories ()
   "Ensures that directories that have been added to the file system are added to
@@ -1702,19 +1667,29 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         for new-setting in new-settings
         for k = (getf new-setting :setting)
         for v = (getf new-setting :value)
-        do (update-user-setting user k v user)
-        appending (list k v) into updated-settings
+        for updated = (update-user-setting user k v user)
+        when updated collect k v into updated-settings
         finally
         (apply #'u:log-it-pairs
           (log-pairs-from-list
             (list :info :in "settings-do-handler"
-              :status (if errors "some settings updated" "settings updated")
+              :status (if updated-settings
+                        "setings updated"
+                        "no settings updated")
               :errors errors
               :user user)
             updated-settings))
         (h:redirect
-          (add-to-url-query "/settings" "message" "Settings updated")
+          (add-to-url-query "/settings"
+            "message" (format nil "~{~a~^;~}" updated-settings)
+            "errors" (format nil "~{~a~^;~}" errors)
+            (settings-update-message updated-settings errors))
           :protocol :https))))))
+
+(defun settings-update-message (updated-settings errors)
+  (let ((updated-settings (mapcar
+                            (lambda (s)
+                              (
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -1737,6 +1712,11 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
 
 (defun setting-exists (settings key)
   (when (member key (setting-keys settings) :test 'equal)) t)
+
+(defun setting-available (settings key)
+  (when (and (setting-exists settings key)
+          (not (zerop (length (setting-value settings key)))))
+    t))
 
 (defun setting-value (settings key)
   (getf (car (remove-if-not
@@ -1761,18 +1741,20 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
   (let* (errors
           (processed
              (cond
-               ((and (setting-exists settings "password")
-                  (setting-exists settings "confirm-password"))
-                 (if (equal (setting-value settings "password")
+               ((and
+                  (setting-available settings "password")
+                  (setting-available settings "confirm-password"))
+                 (if (equal
+                       (setting-value settings "password")
                        (setting-value settings "confirm-password"))
                    (remove-setting settings "confirm-password")
                    (progn
                      (push "Passwords don't match. Password not changed." errors)
                      (remove-setting settings "password" "confirm-password"))))
-               ((setting-exists settings "password")
+               ((setting-available settings "password")
                  (push "No confirm-password field. Password not changed." errors)
                  (remove-setting settings "password"))
-               ((setting-exists settings "confirm-password")
+               ((setting-available settings "confirm-password")
                  (push (format nil "~a ~a"
                          "confirm-password field with no password field."
                          "Password not changed.")
@@ -1784,7 +1766,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
 (defun process-settings-email (settings)
   (let* (errors
           (processed
-            (if (setting-exists settings "email")
+            (if (setting-available settings "email")
               (if (a:valid-email-p *rbac* (setting-value settings "email"))
                 settings
                 (progn
