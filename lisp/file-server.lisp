@@ -1668,7 +1668,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         for k = (getf new-setting :setting)
         for v = (getf new-setting :value)
         for updated = (update-user-setting user k v user)
-        when updated collect k v into updated-settings
+        when updated collect k into updated-settings
         finally
         (apply #'u:log-it-pairs
           (log-pairs-from-list
@@ -1680,16 +1680,27 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
               :user user)
             updated-settings))
         (h:redirect
-          (add-to-url-query "/settings"
-            "message" (format nil "~{~a~^;~}" updated-settings)
-            "errors" (format nil "~{~a~^;~}" errors)
-            (settings-update-message updated-settings errors))
+          (settings-update-message "/settings" updated-settings errors)
           :protocol :https))))))
 
-(defun settings-update-message (updated-settings errors)
-  (let ((updated-settings (mapcar
-                            (lambda (s)
-                              (
+(defun url-param-list-encode (list-of-strings)
+  (when list-of-strings
+    (format nil "~{~a~^,~}"
+      (mapcar #'u:base64-encode list-of-strings))))
+
+(defun url-param-list-decode (url-param)
+  (when (and url-param (not (zerop (length url-param))))
+    (mapcar #'u:base64-decode (re:split ";" url-param))))
+
+(defun settings-update-message (path updated-settings errors)
+  (let* ((encoded-settings (url-param-list-encode updated-settings))
+          (encoded-errors (url-param-list-encode errors))
+          (url-1 (if encoded-settings
+                   (add-to-url-query path "message" encoded-settings)
+                   path)))
+    (if encoded-errors
+      (add-to-url-query url-1 "errors" encoded-errors)
+      url-1)))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor

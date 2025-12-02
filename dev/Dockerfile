@@ -57,7 +57,8 @@ RUN $ROSWELL install postmodern && \
     $ROSWELL install babel && \
     $ROSWELL install jose && \
     $ROSWELL install cl-csv && \
-    $ROSWELL install cl-unicode
+    $ROSWELL install cl-unicode && \
+    $ROSWELL install cl-base64
 
 # Stable macnod packages
 RUN $ROSWELL install macnod/dc-ds && \
