@@ -851,15 +851,28 @@ file name and returns the path to the file with a trailing slash."
 
 (defun user-setting (user setting)
   (let ((id (when user (a:get-id *rbac* "users" user))))
-    (when (setting-exists *default-user-settings* setting)
-      (if id
-        (let ((serialized (a:get-value *rbac* "user_settings" "setting_value"
-                            "user_id" id
-                            "setting_key" setting)))
-          (if serialized
-            (deserialize serialized)
-            (default-setting setting)))
-        (default-setting setting)))))
+    (when id
+      (cond
+        ((equal setting "email")
+          (a:get-value *rbac* "users" "email" "id" id))
+        ((setting-exists *default-user-settings* setting)
+          (let ((serialized (a:get-value *rbac* "user_settings" "setting_value"
+                              "user_id" id
+                              "setting_key" setting)))
+            (if serialized
+              (deserialize serialized)
+              (default-setting setting))))
+        (t nil)))))
+
+(defun setting-needs-update (user setting value)
+  (let* ((id (when user (a:get-id *rbac* "users" user)))
+          (old-value (user-setting user setting))
+          (empty (not (or value (zerop (length value))))))
+    (when id
+      (cond
+        ((and (not empty) (equal setting "password")) t)
+        ((not (equal value old-value)) t)
+        (t nil)))))
 
 (defun render-new-user-form ()
   (let ((roles (regular-roles)))
@@ -1548,7 +1561,10 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                         user))))
       (page
         (input-form "settings-form" "/settings-do" "post"
-          (when message (form-text message :class "settings-message"))
+          (when message (form-text
+                          (decode-settings-message message)
+                          :class "settings-message"
+                          :raw t))
           (loop for (key serialized-value) in settings
             for value = (deserialize serialized-value)
             for display-key = (format nil "~a:" key)
@@ -1628,6 +1644,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
     (session-user (list *logged-in-role*))
     (apply #'u:log-it-pairs (log-pairs-from-post-parameters
                               (list :debug :in "settings-do-handler"
+                                :trace "settings"
                                 :user user
                                 :allowed allowed
                                 :required-roles required-roles)))
@@ -1652,6 +1669,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
       for value = (compute-field-submission key raw-value type default)
       for final-value = (or value default)
       do (u:log-it-pairs :debug :in "settings-do-handler"
+           :trace "settings"
            :key key
            :type type
            :value default
@@ -1661,7 +1679,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
       collect (list :setting key :type type :value final-value)
       into settings-to-update
       finally
-      (multiple-value-bind (errors new-settings)
+      (multiple-value-bind (new-settings errors)
         (process-settings settings-to-update)
       (loop
         for new-setting in new-settings
@@ -1673,34 +1691,58 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         (apply #'u:log-it-pairs
           (log-pairs-from-list
             (list :info :in "settings-do-handler"
+              :trace "settings"
               :status (if updated-settings
                         "setings updated"
                         "no settings updated")
-              :errors errors
+              :updated-settings updated-settings
+              :errors (format nil "~{~a~^; ~}" errors)
               :user user)
             updated-settings))
         (h:redirect
-          (settings-update-message "/settings" updated-settings errors)
+          (add-to-url-query "/settings"
+            "message" (encode-settings-message updated-settings errors))
           :protocol :https))))))
 
-(defun url-param-list-encode (list-of-strings)
-  (when list-of-strings
+(defun safe-encode-list (list-of-strings)
+  (if list-of-strings
     (format nil "~{~a~^,~}"
-      (mapcar #'u:base64-encode list-of-strings))))
+      (mapcar #'u:safe-encode list-of-strings))
+    ""))
 
-(defun url-param-list-decode (url-param)
-  (when (and url-param (not (zerop (length url-param))))
-    (mapcar #'u:base64-decode (re:split ";" url-param))))
+(defun safe-decode-list (encoded-list)
+  (when (and encoded-list (not (zerop (length encoded-list))))
+    (mapcar #'u:safe-decode (re:split "," encoded-list))))
 
-(defun settings-update-message (path updated-settings errors)
-  (let* ((encoded-settings (url-param-list-encode updated-settings))
-          (encoded-errors (url-param-list-encode errors))
-          (url-1 (if encoded-settings
-                   (add-to-url-query path "message" encoded-settings)
-                   path)))
-    (if encoded-errors
-      (add-to-url-query url-1 "errors" encoded-errors)
-      url-1)))
+(defun encode-settings-message (updated-settings errors)
+  (let* ((encoded-settings (safe-encode-list updated-settings))
+          (encoded-errors (safe-encode-list errors))
+          (encoded (u:safe-encode
+                     (format nil "msg;~a;~a" encoded-settings encoded-errors))))
+    (u:log-it-pairs :debug :in "encode-settings-message"
+      :trace "settings"
+      :updated-settings updated-settings
+      :errors errors
+      :encoded encoded)
+    encoded))
+
+(defun decode-settings-message (message)
+  (when message
+    (let* ((parts (re:split ";" (u:safe-decode message)))
+            (check (equal (first parts) "msg"))
+            (settings (when check (safe-decode-list (second parts))))
+            (errors (when check (safe-decode-list (third parts)))))
+      (u:log-it-pairs :debug :in "decode-settings-message"
+        :trace "settings"
+        :setings settings
+        :errors errors)
+      (when check
+        (s:with-html-string
+          (when settings
+            (:p (format nil "Updated settings: ~{~a~^, ~}" settings)))
+          (when errors
+            (:p :class "error-list" "Errors:"
+              (:raw (html-list errors)))))))))
 
 (defun start-web-server ()
   (setf *http-server* (make-instance 'fs-acceptor
@@ -1748,31 +1790,39 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
     unless (member (getf setting :setting) keys :test 'equal)
     collect setting))
 
+(defun password-error (password confirm-password)
+  (cond
+    ((not (equal password confirm-password))
+      "Passwords don't match. Password not changed.")
+    ((not (a:valid-password-p *rbac* password))
+      (format nil "~{~a~^ ~}"
+        (list "Password must have letters, digits, and symbols,"
+          "and it must be at least 6 characters in length")))
+    (t nil)))
+
 (defun process-settings-password (settings)
-  (let* (errors
-          (processed
-             (cond
-               ((and
-                  (setting-available settings "password")
-                  (setting-available settings "confirm-password"))
-                 (if (equal
-                       (setting-value settings "password")
-                       (setting-value settings "confirm-password"))
-                   (remove-setting settings "confirm-password")
-                   (progn
-                     (push "Passwords don't match. Password not changed." errors)
-                     (remove-setting settings "password" "confirm-password"))))
-               ((setting-available settings "password")
-                 (push "No confirm-password field. Password not changed." errors)
-                 (remove-setting settings "password"))
-               ((setting-available settings "confirm-password")
-                 (push (format nil "~a ~a"
-                         "confirm-password field with no password field."
-                         "Password not changed.")
-                   errors)
-                 (remove-setting settings "confirm-password"))
-               (t settings))))
-    (values errors processed)))
+  (let* ((password-available (setting-available settings "password"))
+          (confirm-available (setting-available settings "confirm-password"))
+          (password (setting-value settings "password"))
+          (confirm (setting-value settings "confirm-password"))
+          (password-error (when (and password-available confirm-available)
+                            (password-error password confirm)))
+          (errors (if password-error
+                    (list password-error)
+                    (unless (equal password-available confirm-available)
+                      (list (format nil "~a ~a"
+                              "Password and password confirmation are"
+                              "both required. Password not changed.")))))
+          (new-settings (if errors
+                          (remove-setting settings
+                            "password" "confirm-password")
+                          (remove-setting settings "confirm-password"))))
+    (u:log-it-pairs :debug :in "process-settings-password"
+      :trace "settings"
+      :settings (format nil "~a" settings)
+      :new-settings (format nil "~a" new-settings)
+      :errors (format nil "~a" errors))
+    (values new-settings errors)))
 
 (defun process-settings-email (settings)
   (let* (errors
@@ -1783,8 +1833,13 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                 (progn
                   (push "Invalid email. Email not changed." errors)
                   (remove-setting settings "email")))
-              settings)))
-    (values errors processed)))
+              (remove-setting settings "email"))))
+    (u:log-it-pairs :debug :in "process-settings-email"
+      :trace "settings"
+      :settings (format nil "~a" settings)
+      :new-settings (format nil "~a" processed)
+      :errors (format nil "~a" errors))
+    (values processed errors)))
 
 (defun process-settings (settings)
   (loop
@@ -1793,11 +1848,17 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                                  #'process-settings-email)
     for processor in settings-processors
     for current-settings = settings then new-settings
-    for (errors new-settings) = (multiple-value-bind (errors psettings)
+    for (new-settings errors) = (multiple-value-bind (psettings errors)
                                   (funcall processor current-settings)
-                                  (list errors psettings))
-    when errors collect errors into all-errors
-    finally (return (values all-errors new-settings))))
+                                  (list psettings errors))
+    when errors append errors into all-errors
+    finally
+    (u:log-it-pairs :debug :in "process-settings"
+      :trace "settings"
+      :settings (format nil "~a" settings)
+      :new-settings (format nil "~a" new-settings)
+      :errors (format nil "~a" all-errors))
+    (return (values all-errors new-settings))))
 
 (defun serialize (value)
   (format nil "~s" value))
@@ -1812,14 +1873,23 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
     (when (and user-id actor-id)
       (cond
         ((equal key "password")
+          (u:log-it-pairs :debug :in "update-settings-sql"
+            :trace "settings" :sql-choice "password"
+            :key key :value value)
           (list
             "update users set password_hash = $1, updated_by = $2 where id = $3"
             (a:password-hash user value) actor-id user-id))
         ((equal key "email")
+          (u:log-it-pairs :debug :in "update-settings-sql"
+            :trace "settings" :sql-choice "email"
+            :key key :value value)
           (list
             "update users set email = $1, updated_by = $2 where id = $3"
             value actor-id user-id))
         ((setting-exists *default-user-settings* key)
+          (u:log-it-pairs :debug :in "update-settings-sql"
+            :trace "settings" :sql-choice "regular-setting"
+            :key key :value value)
           (list
             (a:usql
               "insert into user_settings
@@ -1832,29 +1902,32 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
               updated_at = now()")
             user-id key (serialize value) actor-id))
         (t
-          (u:log-it-pairs :error :in "settings-sql"
-            :status "unknown setting" :setting key)
+          (u:log-it-pairs :error :in "update-settings-sql"
+            :trace "settings" :status "unknown setting" :setting key)
           nil)))))
 
 (defun update-user-setting (user key value actor)
-  (let ((query (update-settings-sql key value user actor)))
-    (if query
-      (handler-case
+  (when (setting-needs-update user key value)
+    (let ((query (update-settings-sql key value user actor)))
+      (if query
+        (handler-case
+          (progn
+            (a:with-rbac (*rbac*) (a:rbac-query query))
+            (u:log-it-pairs :debug :in "update-user-setting"
+              :trace "settings" :status "success"
+              :key key :value value :user user :actor actor)
+            t)
+          (error (e)
+            (u:log-it-pairs :error :in "update-user-setting"
+              :trace "settings"
+              :status "fail" :error (format nil "~a" e)
+              :key key :value value :user user :actor actor)
+            nil))
         (progn
-          (a:with-rbac (*rbac*) (a:rbac-query query))
-          (u:log-it-pairs :debug :in "update-user-setting" :status "success"
-            :key key :value value :user user :actor actor)
-          t)
-        (error (e)
           (u:log-it-pairs :error :in "update-user-setting"
-            :status "fail" :error (format nil "~a" e)
+            :status "fail" :error "unknown user, actor, or setting"
             :key key :value value :user user :actor actor)
-          nil))
-      (progn
-        (u:log-it-pairs :error :in "update-user-setting"
-          :status "fail" :error "unknown user, actor, or setting"
-          :key key :value value :user user :actor actor)
-        nil))))
+          nil)))))
 
 (defun create-user-settings (user)
   (loop with user-id = (or (a:get-id *rbac* "users" user)

@@ -199,6 +199,13 @@ empty string."
   (let ((list-no-nulls (remove-if-not #'identity (u:flatten list))))
     (format nil "~{~a~%~}" list-no-nulls)))
 
+(defun html-list (list &key class)
+  (when list
+    (s:with-html-string
+      (:ul :class (add-to-class class "html-list")
+        (loop for item in list
+          collect (:li item))))))
+
 (defun add-to-url-query (path &rest pairs)
   (when path
     (loop
@@ -221,10 +228,11 @@ empty string."
     (:div :class (add-to-class "form-title" class)
       (:span :class "form-title-text" text))))
 
-(defun form-text (text &key class)
+(defun form-text (text &key class raw)
   (s:with-html-string
     (:div :class "form-group"
-      (:span :class (add-to-class class "form-text") text))))
+      (:div :class (add-to-class class "form-text")
+        (if raw (:raw text) text)))))
 
 (defun add-to-class (existing-class new-class)
   (cond
