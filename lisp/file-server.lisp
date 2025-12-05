@@ -1813,7 +1813,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                       (list (format nil "~a ~a"
                               "Password and password confirmation are"
                               "both required. Password not changed.")))))
-          (new-settings (if errors
+          (new-settings (if (or errors (not password-available))
                           (remove-setting settings
                             "password" "confirm-password")
                           (remove-setting settings "confirm-password"))))
@@ -1858,7 +1858,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
       :settings (format nil "~a" settings)
       :new-settings (format nil "~a" new-settings)
       :errors (format nil "~a" all-errors))
-    (return (values all-errors new-settings))))
+    (return (values new-settings all-errors))))
 
 (defun serialize (value)
   (format nil "~s" value))
