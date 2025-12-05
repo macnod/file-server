@@ -16,6 +16,8 @@ function usage {
     echo
     echo "Options:"
     echo "  --env          The environment: prod or dev"
+    echo "  --latest       Works for the prod environment only. Brings it up"
+    echo "                 to the latest version in dev."
     echo "  --render-only  Don't build. Just create the rendered manifests"
     echo "                 file as it would have been deployed by help."
     echo "  --no-build     Deploy, but don't build."
