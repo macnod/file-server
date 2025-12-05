@@ -1069,7 +1069,7 @@ directory."
       :original-filename (file-namestring original-filename)
       :content-type content-type
       :new-path new-path)
-    (copy-file temp-path (pathname new-path))
+    (u:copy-file temp-path (pathname new-path))
     (u:log-it-pairs :info :in "upload-file-handler"
       :status "file uploaded"
       :new-path new-path
