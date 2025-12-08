@@ -385,6 +385,11 @@ file name and returns the path to the file with a trailing slash."
     :status "checking access" :user user :permission "read" :path path)
   (a:user-allowed *rbac* user "read" path))
 
+(defun has-update-access (user path)
+  (u:log-it-pairs :debug :in "has-update-access"
+    :status "checking access" :user user :permission "update" :path path)
+  (a:user-allowed *rbac* user "update" path))
+
 (defun list-files (abs-path)
   (let ((path (if (re:scan "/$" abs-path)
                 abs-path
@@ -769,6 +774,39 @@ file name and returns the path to the file with a trailing slash."
       (s:with-html-string
         (:raw (render-table headers rows))
         (:raw (input-submit-button "Delete Users"))))))
+
+;; (defun accessible-subdirectory-list (user path)
+;;   (loop for dir in (a:list-user-resources
+
+;; (defun render-resource-list (user path abs-path page page-size)
+;;   (let* ((files (list-files abs-path))
+;;           (headers (list " " " " " " " " " "))
+;;           (rows (append
+;;                   (loop
+;;                     with subdirs = (rdl-subdirectories user abs-path)
+;;                     and folder-image = "/image?name=folder.png"
+;;                     and edit-image = "/image?name=edit.png"
+;;                     for dir in subdirs
+;;                     for name = (u:leaf-directory-only dir)
+;;                     for roles = (format nil "~{~a~, ~}" (directory-roles dir))
+;;                     for dir-href = (format nil "/files?path=~a" dir)
+;;                     for editor = (has-update-access user dir)
+;;                     for edit-roles-href = (add-to-url-query
+;;                                             "/edit-directory-roles"
+;;                                             "directory" dir
+;;                                             "parent" path)
+;;                     for edit-roles-link = (if editor
+;;                                             (s:with-html-string
+;;                                               (:a :href edit-roles-href
+;;                                                 (:img :src edit-image)))
+;;                                             " ")
+;;                     for checkbox = (input-checkbox ""
+;;                                      :name "resources"
+;;                                      :value dir
+;;                                      :disabled (not editor))
+;;                     collect
+;;                     (list folder-image name roles edit-roles-link checkbox))
+;;                   (loop
 
 (defun render-table (headers rows &key (class "standard-table"))
   (unless (and (listp headers) (listp rows))
