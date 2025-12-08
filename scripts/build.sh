@@ -35,11 +35,9 @@ function usage {
 
 ENVIRONMENT="dev"
 RENDER_ONLY=false
-DEPLOY_ONLY=true
 NO_BUILD=false
 NO_CACHE=false
 NO_DEPLOY=false
-REDEPLOY=false
 PUSH=false
 VALUES_FILE=""
 RENDERED_MANIFESTS=""
@@ -70,10 +68,6 @@ while [ $# -gt 0 ]; do
             ;;
         --no-deploy)
             NO_DEPLOY=true
-            ;;
-        --redeploy)
-            NO_BUILD=true
-            REDEPLOY=true
             ;;
         --push)
             PUSH=true
@@ -115,13 +109,12 @@ if [[ "$ENVIRONMENT" = "prod" ]]; then
         if [[ "$PROD_VERSION" != "0.0.0" ]]; then
             VERSION="$PROD_VERSION"
         else
-            VERSION="$DEV_VERSION"  # Fallback
+            VERSION="$DEV_VERSION"
         fi
     fi
 elif [[ "$ENVIRONMENT" = "dev" ]]; then
     if [[ \
-          "$REDEPLOY" = false \
-          && "$NO_DEPLOY" = false \
+          "$NO_DEPLOY" = false \
           && "$NO_BUILD" = false \
           && "$RENDER_ONLY" = false \
        ]]; then
@@ -172,6 +165,7 @@ if [[ "$NO_BUILD" = false ]]; then
         -t "macnod/${IMAGE}:${VERSION}" \
         -t "macnod/${IMAGE}:latest" \
         .
+    echo "Completed build for macnod/${IMAGE}:${VERSION}"
 fi
 
 # Deploy
@@ -181,6 +175,7 @@ if [[ "$NO_DEPLOY" = false ]]; then
         --create-namespace \
         --values "$VALUES_FILE" \
         --set image.tag=$VERSION
+    echo "Deployed macnod/${IMAGE}:${VERSION}"
 fi
 
 # Push the containers
