@@ -15,18 +15,18 @@ function usage {
     echo "must be in branch master."
     echo
     echo "Options:"
-    echo "  --env          The environment: prod or dev"
-    echo "  --latest       Works for the prod environment only. Brings it up"
-    echo "                 to the latest version in dev."
-    echo "  --render-only  Don't build. Just create the rendered manifests"
-    echo "                 file as it would have been deployed by help."
-    echo "  --no-build     Deploy, but don't build."
-    echo "  --no-cache     Don't use cache when building the container image."
-    echo "  --no-deploy    Build the container image, but don't deploy."
-    echo "  --push         Push the container to a container registry (CR)."
-    echo "                 Must be logged into the CR."
-    echo "  --verbose      Show docker build output."
-    echo "  --help         Display this help screen."
+    echo "  --env {dev|prod}  The environment: prod or dev"
+    echo "  --latest          Works for the prod environment only. Brings it up"
+    echo "                    to the latest version in dev."
+    echo "  --render-only     Don't build. Just create the rendered manifests"
+    echo "                    file as it would have been deployed by help."
+    echo "  --no-build        Deploy, but don't build."
+    echo "  --no-cache        Don't use cache when building the container image."
+    echo "  --no-deploy       Build the container image, but don't deploy."
+    echo "  --push            Push the container to a container registry (CR)."
+    echo "                    Must be logged into the CR."
+    echo "  --verbose         Show docker build output."
+    echo "  --help            Display this help screen."
     echo
     echo "Notes:"
     echo "  - If --no-cache is omitted, then 3rd party packages are cached, but local"
@@ -119,7 +119,12 @@ if [[ "$ENVIRONMENT" = "prod" ]]; then
         fi
     fi
 elif [[ "$ENVIRONMENT" = "dev" ]]; then
-    if [[ "$REDEPLOY" = false && "$NO_BUILD" = false && "$RENDER_ONLY" = false ]]; then
+    if [[ \
+          "$REDEPLOY" = false \
+          && "$NO_DEPLOY" = false \
+          && "$NO_BUILD" = false \
+          && "$RENDER_ONLY" = false \
+       ]]; then
         increment_version
     fi
     VERSION="$DEV_VERSION"
