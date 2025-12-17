@@ -34,10 +34,6 @@
      (:setting "items per page" :type :number :value 20)
      (:setting "landing page" :type :string :value "/files?path=/")))
 
-;; JWT Secret
-(defparameter *jwt-secret*
-  (b:string-to-octets (u:getenv "JWT_SECRET" :default "32-char secret")))
-
 ;; Javascript
 (defparameter *web-directory* (u:getenv "WEB_DIRECTORY"
                                :default "/app/web"))
@@ -46,8 +42,10 @@
 
 ;; HTTP and Swank servers
 (defparameter *http-port* (u:getenv "HTTP_PORT" :default 8080 :type :integer))
-(defparameter *document-root* (u:getenv "FS_DOCUMENT_ROOT"
-                                :default "/app/shared-files/"))
+(defparameter *document-root*
+  (let ((dir (u:getenv "FS_DOCUMENT_ROOT"
+               :default "/app/shared-files/")))
+    (if (re:scan "/$" dir) dir (format nil "~a/" dir))))
 (defparameter *temp-directory* (u:getenv "FS_TEMP_DIRECTORY"
                                  :default "/app/temp-files/"))
 (defparameter *swank-port* (u:getenv "SWANK_PORT" :default 4005 :type :integer))
@@ -68,7 +66,6 @@
 (defparameter *http-server* nil)
 (defparameter *swank-server* nil)
 (defparameter *root-userid* nil)
-(defparameter *rbac* nil)
 (defparameter *directory-syncing* t)
 (defparameter *max-page-size* 1000)
 
@@ -105,7 +102,6 @@
                            ,element-name name-param)))
                (log-pairs (append
                             (list
-                              :debug
                               :in handler
                               :index 1
                               :user user
@@ -124,7 +120,7 @@
                                   collect var)))))
 
          ;; Log the request
-         (apply #'u:log-it-pairs log-pairs)
+         (pl:plog :debug log-pairs)
 
          ;; Authorization
          (unless allowed
@@ -178,7 +174,6 @@
                (handler (format nil "~(~a~)" ',handler-name))
                (log-pairs (append
                             (list
-                              :debug
                               :in handler
                               :user user
                               :allowed allowed
@@ -191,7 +186,7 @@
                                       collect var)))))
 
          ;; Log the request
-         (apply #'u:log-it-pairs log-pairs)
+         (pl:plog :debug log-pairs)
 
          ;; Authorization
          (unless allowed
@@ -227,13 +222,13 @@
 ;;
 
 ;;
-;; Custom Hunchentoot acceptor, for log-it logging
+;; Custom Hunchentoot acceptor, for plog logging
 ;;
 (defclass fs-acceptor (h:easy-acceptor)
   ())
 
 (defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
-  "Override to route access logs through u:log-it."
+  "Override to route access logs through pl:plog."
   (let* ((code (h:return-code*))
           (uri (h:request-uri*))
           (health-log (equal uri "/health"))
@@ -243,20 +238,21 @@
                           ((< code 500) :warn)
                           (t :error))))
     (unless (and health-log *log-suppress-health*)
-      (u:log-it-pairs log-severity
-        :type "access"
-        :client (h:real-remote-addr)
-        :hop (h:remote-addr*)
-        :server (h:local-addr*)
-        :host (h:host)
-        :method (h:request-method*)
-        :uri uri
-        :return-code code
-        :status return-code
-        :content-length (or (h:content-length*) 0)
-        :content-type (or (h:content-type*) "unknown")
-        :referer (h:referer)
-        :agent (h:user-agent)))))
+      (pl:plog log-severity
+        (list
+          :type "access"
+          :client (h:real-remote-addr)
+          :hop (h:remote-addr*)
+          :server (h:local-addr*)
+          :host (h:host)
+          :method (h:request-method*)
+          :uri uri
+          :return-code code
+          :status return-code
+          :content-length (or (h:content-length*) 0)
+          :content-type (or (h:content-type*) "unknown")
+          :referer (h:referer)
+          :agent (h:user-agent))))))
 
 (defmethod h:acceptor-log-message ((acceptor fs-acceptor)
                                     log-level
@@ -266,8 +262,9 @@
                          (:warning :warn)
                          (:info :info)
                          (t :debug)))
-          (params (append (list log-severity format-string) format-arguments)))
-    (apply #'u:log-it params)))
+          (message (apply #'format
+                     (append nil format-string) format-arguments)))
+    (pl:plog log-severity (list :text message))))
 ;;
 ;; End custom Hunchentoot acceptor
 ;;
@@ -290,7 +287,7 @@ directory's ID if it does and NIL otherwise."
         (user-roles user)
         (regular-user-roles user))
       (error (e)
-        (u:log-it-pairs :error :in "db-list-roles"
+        (pl:perror :in "db-list-roles"
           :status "failed to retrieve roles for user"
           :user user
           :error (format nil "~a" e))
@@ -308,7 +305,7 @@ directory's ID if it does and NIL otherwise."
   (a:d-add-user *rbac* username password :roles roles :email email)
   (ensure-immutable-user-roles username)
   (create-user-settings username)
-  (u:log-it-pairs :info :in "db-add-user"
+  (pl:pinfo :in "db-add-user"
     :status "added user"
     :username username
     :email email
@@ -340,7 +337,7 @@ directory's ID if it does and NIL otherwise."
 the RBAC database, and that directories that have been removed from the file
 system are removed from the RBAC database. The resources in the RBAC database
 should correspond exactly to the directories in the file system."
-  (u:log-it-pairs :debug :in "sync-directories")
+  (pl:pdebug :in "sync-directories")
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (resource-names))
           (added (loop
@@ -353,11 +350,11 @@ should correspond exactly to the directories in the file system."
                      do (a:d-remove-resource *rbac* dir)
                      and collect dir)))
     (when added
-      (u:log-it-pairs :info :in "sync-directories"
+      (pl:pinfo :in "sync-directories"
         :status "added directories"
         :directories added))
     (when removed
-      (u:log-it-pairs :info :in "sync-directories"
+      (pl:pinfo :in "sync-directories"
         :status "removed directories"
         :directories removed))))
 
@@ -375,18 +372,18 @@ file name and returns the path to the file with a trailing slash."
             (clean-path (if (equal path-only "/")
                           "/"
                           (format nil "/~a/" (string-trim "/" path-only)))))
-      (u:log-it-pairs :debug :in "clean-path"
+      (pl:pdebug :in "clean-path"
         :path-only path
         :clean-path clean-path)
       clean-path)))
 
 (defun has-read-access (user path)
-  (u:log-it-pairs :debug :in "has-read-access"
+  (pl:pdebug :in "has-read-access"
     :status "checking access" :user user :permission "read" :path path)
   (a:user-allowed *rbac* user "read" path))
 
 (defun has-update-access (user path)
-  (u:log-it-pairs :debug :in "has-update-access"
+  (pl:pdebug :in "has-update-access"
     :status "checking access" :user user :permission "update" :path path)
   (a:user-allowed *rbac* user "update" path))
 
@@ -430,7 +427,7 @@ file name and returns the path to the file with a trailing slash."
               (:li (:a :href "/logout" "log in")))))))))
 
 (defun page (content &key subtitle user)
-  (u:log-it-pairs :debug :in "page"
+  (pl:pdebug :in "page"
     :status "rendering page" :subtitle subtitle :user user)
   (let ((title "Donnie's Bad-Ass File Server"))
     (s:with-html-string
@@ -541,7 +538,7 @@ file name and returns the path to the file with a trailing slash."
          (subdirs (rdl-subdirectories user abs-path))
          (crumbs (assemble-breadcrumbs path))
          (roles (directory-roles path)))
-    (u:log-it-pairs :debug :in "render-directory-listing"
+    (pl:pdebug :in "render-directory-listing"
       :status "list directories"
       :user user
       :path path
@@ -562,20 +559,9 @@ file name and returns the path to the file with a trailing slash."
       :user user
       :subtitle "Files")))
 
-(defmethod h:acceptor-log-message ((acceptor h:easy-acceptor)
-                                    log-level
-                                    (format-string string)
-                                    &rest format-arguments)
-  (let ((log-severity (case log-level
-                        (:error :error)
-                        (:warning :warn)
-                        (:info :info)
-                        (otherwise :debug))))
-    (funcall #'u:log-it log-severity format-string format-arguments)))
-
 (h:define-easy-handler (health :uri "/health") ()
   (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
-    (u:timestamp-string)))
+    (dt:timestamp-string)))
 
 (defun render-login-form (&key error-message redirect)
   (page
@@ -589,7 +575,7 @@ file name and returns the path to the file with a trailing slash."
 (h:define-easy-handler (login-handler :uri "/login")
   (error-message redirect)
   (setf (h:content-type*) "text/html")
-  (u:log-it-pairs :debug :in "login-handler"
+  (pl:pdebug :in "login-handler"
     :error error-message
     :redirect redirect)
   (when (zerop (length redirect))
@@ -601,7 +587,7 @@ file name and returns the path to the file with a trailing slash."
   (setf (h:content-type*) "text/html")
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *public-role*))
-    (u:log-it-pairs :debug :in "login-do-handler"
+    (pl:pdebug :in "login-do-handler"
       :user user
       :allowed allowed
       :required-roles required-roles
@@ -625,7 +611,7 @@ file name and returns the path to the file with a trailing slash."
     (let ((user-id (db-user-id username password)))
       (if user-id
         (let ((token (issue-jwt user-id)))
-          (u:log-it-pairs :info :in "login-handler"
+          (pl:pinfo :in "login-handler"
             :status "login successful"
             :user username
             :redirect (or redirect "/files"))
@@ -633,7 +619,7 @@ file name and returns the path to the file with a trailing slash."
           (setf (h:session-value :jwt-token) token)
           (h:redirect (or redirect "/files") :protocol :https))
         (progn
-          (u:log-it-pairs :warn :in "login-handler"
+          (pl:pwarn :in "login-handler"
             :status "login failed"
             :username username
             :redirect (add-to-url-query "/login" "redirect" redirect))
@@ -671,7 +657,7 @@ file name and returns the path to the file with a trailing slash."
     (let* ((abs-path (u:join-paths *document-root* path))
             (path-only (clean-path path))
             (method (h:request-method*)))
-      (u:log-it-pairs :debug :in "files-handler"
+      (pl:pdebug :in "files-handler"
         :user user
         :allowed allowed
         :required-roles required-roles
@@ -680,7 +666,7 @@ file name and returns the path to the file with a trailing slash."
 
       ;; Is user authorized?
       (unless allowed
-        (u:log-it-pairs :info :in "files-handler"
+        (pl:pinfo :in "files-handler"
           :status "authorization failed"
           :old-user user
           :new-user *guest*)
@@ -688,43 +674,43 @@ file name and returns the path to the file with a trailing slash."
 
       ;; Is the method GET?
       (unless (eql method :get)
-        (u:log-it-pairs :warn :in "files-handler"
+        (pl:pwarn :in "files-handler"
           :status "method not allowed"
           :user user :method method :path path)
         (setf (h:return-code*) h:+http-method-not-allowed+)
         (return-from files-handler "Method Not Allowed"))
-      (u:log-it-pairs :debug :in "files-handler"
+      (pl:pdebug :in "files-handler"
         :status "Method is GET")
 
       ;; Does the file or directory exist?
       (unless (or (u:file-exists-p abs-path) (u:directory-exists-p abs-path))
-        (u:log-it-pairs :warn :in "files-handler"
+        (pl:pwarn :in "files-handler"
           :status "path not found" :path path :abs-path abs-path :user user)
         (setf (h:return-code*) h:+http-not-found+)
         (return-from files-handler "Not Found"))
-      (u:log-it-pairs :debug :in "files-handler"
+      (pl:pdebug :in "files-handler"
         :status "file or directory exists"
         :file-or-directory abs-path)
 
       ;; Does the user have access to the path?
       (unless (has-read-access user path-only)
-        (u:log-it-pairs :info :in "files-handler"
+        (pl:pinfo :in "files-handler"
           :status "access denied"
           :path path :path-only path-only :user user)
         (setf (h:return-code h:*reply*) h:+http-forbidden+)
         (return-from files-handler "Forbidden"))
-      (u:log-it-pairs :info :in "files-handler"
+      (pl:pinfo :in "files-handler"
         :status "access granted" :user user :path path-only)
 
       ;; Access OK
       (if (eql (u:path-type abs-path) :directory)
         (progn
-          (u:log-it-pairs :debug :in "files-handler"
+          (pl:pdebug :in "files-handler"
             :status "path is a directory"
             :path path)
           (render-directory-listing user path abs-path))
         (progn
-          (u:log-it-pairs :debug :in "file-handler"
+          (pl:pdebug :in "file-handler"
             :status "path is a file"
             :path path)
           (h:handle-static-file abs-path))))))
@@ -941,7 +927,7 @@ file name and returns the path to the file with a trailing slash."
                      parent-roles
                      user-roles)
                    (intersection parent-roles user-roles :test 'equal))))
-    (u:log-it-pairs :debug :in "role-options"
+    (pl:pdebug :in "role-options"
       :user user
       :user-roles user-roles
       :parent parent
@@ -949,7 +935,7 @@ file name and returns the path to the file with a trailing slash."
       :roles roles)
     (if (has user-roles *admin-role*)
       roles
-      (exclude-except roles ":exclusive$" exceptions))))
+      (exclude-regex roles ":exclusive$" exceptions))))
 
 (defun render-new-directory-form (user parent)
   (input-form "add-directory" "/add-directory" "post"
@@ -975,13 +961,13 @@ file name and returns the path to the file with a trailing slash."
                   (:div :class "error"
                     (:p :class "error-description" message))))
           (logs (append
-                  (list log-level
+                  (list
                     :in in
                     :action action
                     :user user
                     :status message)
                   logging-list)))
-    (apply #'u:log-it-pairs logs)
+    (pl:plog log-level logs)
     (page body :subtitle "Error" :user (or user *guest*))))
 
 (defun error-page-list (log-level in action user error-description
@@ -1004,14 +990,14 @@ file name and returns the path to the file with a trailing slash."
                           :error-list error-list)
                   logging-list)))
 
-    (apply #'u:log-it-pairs logs)
+    (pl:plog log-level logs)
     (page body :subtitle "Error" :user user)))
 
 
 (defun success-page (user description &rest params)
   (let* ((desc (apply #'format
                  (append (list nil description) params))))
-    (u:log-it-pairs :debug :in "success-page"
+    (pl:pdebug :in "success-page"
       :user user
       :description desc)
     (page (s:with-html-string (:p desc)) :subtitle "Success" :user user)))
@@ -1072,7 +1058,7 @@ directory."
   (let* ((resource (concatenate 'string parent directory "/"))
           (absolute-path (absolute-directory-path resource))
           (all-roles (cons (format nil "~a:exclusive" user) new-roles)))
-    (u:log-it-pairs :debug :in "add-directory-handler"
+    (pl:pdebug :in "add-directory-handler"
       :user user
       :resource resource
       :absolute-path absolute-path
@@ -1101,14 +1087,14 @@ directory."
     ;;   (format nil "User '~a' not allowed to upload to '~a'" user parent))
     ;; ((and file (listp file) (= (length file) 3))
     ;;   "File upload is invalid"))
-    (u:log-it-pairs :debug :in "upload-file"
+    (pl:pdebug :in "upload-file"
       :user user
       :temp-path (file-namestring temp-path)
       :original-filename (file-namestring original-filename)
       :content-type content-type
       :new-path new-path)
     (u:copy-file temp-path (pathname new-path))
-    (u:log-it-pairs :info :in "upload-file-handler"
+    (pl:pinfo :in "upload-file-handler"
       :status "file uploaded"
       :new-path new-path
       :content-type content-type))
@@ -1118,14 +1104,14 @@ directory."
   (source target)
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *logged-in-role*))
-    (u:log-it-pairs :debug :in "confirm-handler"
+    (pl:pdebug :in "confirm-handler"
       :source source
       :target target
       :user user
       :allowed allowed
       :required-roles required-roles)
     (unless allowed
-      (u:log-it-pairs :error :in "confirm-handler"
+      (pl:perror :in "confirm-handler"
         :status "Not authorized"
         :user user
         :allowed allowed
@@ -1137,7 +1123,7 @@ directory."
     (let ((title (h:session-value :confirmation-title))
            (description (h:session-value :confirmation-description))
            (form-action (add-to-url-query target :source source)))
-      (u:log-it-pairs :debug :in "confirm-handler"
+      (pl:pdebug :in "confirm-handler"
         :status "Creating confirmation page"
         :title title
         :description description
@@ -1169,7 +1155,7 @@ directory."
           (user (when token (validate-jwt token)))
           (user-roles (when user (user-roles user)))
           (allowed (has-some required-roles user-roles)))
-    (u:log-it-pairs :debug :in "session-user"
+    (pl:pdebug :in "session-user"
       :token token
       :required-roles required-roles
       :roles user-roles
@@ -1180,13 +1166,13 @@ directory."
   (let ((user-id (db-user-id username password)))
     (if user-id
       (let ((token (issue-jwt user-id)))
-        (u:log-it-pairs :info :in "login"
+        (pl:pinfo :in "login"
           :status "login successful" :user username)
         (h:start-session)
         (setf (h:session-value :jwt-token) token))
       (progn
         (h:delete-session-value :jwt-token)
-        (u:log-it-pairs :warn :in "login"
+        (pl:pwarn :in "login"
           :status "login failed" :user username)
         nil))))
 
@@ -1248,7 +1234,7 @@ directory."
   ((usernames :parameter-type '(list string)))
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin-role*))
-    (u:log-it-pairs :debug :in "delete-users-handler"
+    (pl:pdebug :in "delete-users-handler"
       :user user
       :allowed allowed
       :required-roles required-roles
@@ -1280,7 +1266,7 @@ directory."
   (action source)
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin-role*))
-    (u:log-it-pairs :debug :in "delete-user-do-handler"
+    (pl:pdebug :in "delete-user-do-handler"
       :source source
       :user user
       :allowed allowed
@@ -1297,7 +1283,7 @@ directory."
   ((roles :parameter-type '(list string)))
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin-role*))
-    (u:log-it-pairs :debug :in "delete-roles-handler"
+    (pl:pdebug :in "delete-roles-handler"
       :user user
       :allowed allowed
       :required-roles required-roles
@@ -1326,7 +1312,7 @@ directory."
   (action source)
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin-role*))
-    (u:log-it-pairs :debug :in "delete-user-do-handler"
+    (pl:pdebug :in "delete-user-do-handler"
       :source source
       :user user
       :allowed allowed
@@ -1343,7 +1329,7 @@ directory."
     (directory parent)
     (multiple-value-bind (user allowed required-roles)
       (session-user (list *logged-in-role*))
-      (u:log-it-pairs :debug :in "edit-directory-roles-handler"
+      (pl:pdebug :in "edit-directory-roles-handler"
         :user user
         :allowed allowed
         :required-roles required-roles
@@ -1366,7 +1352,7 @@ directory."
 
 (defun edit-directory-roles-do-helper
   (directory parent roles user allowed required-roles)
-    (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+    (pl:pdebug :in "edit-directory-roles-do-helper"
       :user user
       :allowed allowed
       :required-roles required-roles
@@ -1380,7 +1366,7 @@ directory."
             (user-roles (user-roles user))
             (allowed-roles (role-options user parent))
             (unknown-roles (exclude roles allowed-roles)))
-      (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+      (pl:pdebug :in "edit-directory-roles-do-helper"
         :parent-roles parent-roles
         :user-roles user-roles
         :allowed-roles allowed-roles
@@ -1402,7 +1388,7 @@ directory."
       (let* ((existing-roles (resource-roles directory))
               (to-add (set-difference roles existing-roles :test 'equal))
               (to-remove (set-difference existing-roles roles :test 'equal)))
-        (u:log-it-pairs :debug :in "edit-directory-roles-do-helper"
+        (pl:pdebug :in "edit-directory-roles-do-helper"
           :existing-roles existing-roles
           :to-add to-add
           :to-remove to-remove)
@@ -1441,7 +1427,7 @@ directory."
   ((roles-user :real-name "user"))
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin*))
-    (u:log-it-pairs :debug :in "edit-user-roles-handler"
+    (pl:pdebug :in "edit-user-roles-handler"
       :user user
       :allowed allowed
       :required-roles required-roles
@@ -1460,7 +1446,7 @@ directory."
     (target-roles :real-name "roles" :parameter-type '(list string)))
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *admin-role*))
-    (u:log-it-pairs :debug :in "edit-user-roles-do-handler"
+    (pl:pdebug :in "edit-user-roles-do-handler"
       :user user
       :required-roles required-roles
       :allowed allowed
@@ -1474,7 +1460,7 @@ directory."
                       :test 'equal))
             (to-remove (set-difference existing-roles target-roles
                          :test 'equal)))
-      (u:log-it-pairs :debug :in "edit-user-roles-do-handler"
+      (pl:pdebug :in "edit-user-roles-do-handler"
         :existing-roles existing-roles
         :to-add to-add
         :to-remove to-remove)
@@ -1530,7 +1516,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
                      for checked = (has (resource-roles directory) role)
                      collect checked into checked-states
                      finally (return checked-states))))
-    (u:log-it-pairs :debug :in "render-edit-directory-roles-form"
+    (pl:pdebug :in "render-edit-directory-roles-form"
       :parent parent :directory directory :user user :roles roles)
     (input-form "edit-directory-roles" "/edit-directory-roles-do" "post"
       (input-hidden "parent" parent)
@@ -1581,7 +1567,7 @@ checkboxes are checked if the role is currently assigned to DIRECTORY."
   (message)
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *logged-in-role*))
-    (u:log-it-pairs :debug :in "settings-handler"
+    (pl:pdebug :in "settings-handler"
       :user user
       :allowed allowed
       :required-roles required-roles)
@@ -1656,8 +1642,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         (if (re:scan "^[0-9]+$" raw-value)
           (deserialize raw-value)
           (progn
-            (u:log-it-pairs :error
-              :in "settings-do-handler"
+            (pl:perror :in "settings-do-handler"
               :status "Invalid number submission"
               :field name
               :expected-type type
@@ -1680,12 +1665,12 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
   (setf *last-post-parameters* (h:post-parameters*))
   (multiple-value-bind (user allowed required-roles)
     (session-user (list *logged-in-role*))
-    (apply #'u:log-it-pairs (log-pairs-from-post-parameters
-                              (list :debug :in "settings-do-handler"
-                                :trace "settings"
-                                :user user
-                                :allowed allowed
-                                :required-roles required-roles)))
+    (pl:pdebug (log-pairs-from-post-parameters
+                (list :in "settings-do-handler"
+                  :trace "settings"
+                  :user user
+                  :allowed allowed
+                  :required-roles required-roles)))
     (unless allowed
       (setf (h:return-code*) h:+http-forbidden+)
       (return-from settings-do-handler
@@ -1706,7 +1691,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
       for raw-value = (u:trim (cdr (assoc field-name params :test 'equal)))
       for value = (compute-field-submission key raw-value type default)
       for final-value = (or value default)
-      do (u:log-it-pairs :debug :in "settings-do-handler"
+      do (pl:pdebug :in "settings-do-handler"
            :trace "settings"
            :key key
            :type type
@@ -1726,7 +1711,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         for updated = (update-user-setting user k v user)
         when updated collect k into updated-settings
         finally
-        (apply #'u:log-it-pairs
+        (pl:plog :info
           (log-pairs-from-list
             (list :info :in "settings-do-handler"
               :trace "settings"
@@ -1757,7 +1742,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
           (encoded-errors (safe-encode-list errors))
           (encoded (u:safe-encode
                      (format nil "msg;~a;~a" encoded-settings encoded-errors))))
-    (u:log-it-pairs :debug :in "encode-settings-message"
+    (pl:pdebug :in "encode-settings-message"
       :trace "settings"
       :updated-settings updated-settings
       :errors errors
@@ -1770,7 +1755,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
             (check (equal (first parts) "msg"))
             (settings (when check (safe-decode-list (second parts))))
             (errors (when check (safe-decode-list (third parts)))))
-      (u:log-it-pairs :debug :in "decode-settings-message"
+      (pl:pdebug :in "decode-settings-message"
         :trace "settings"
         :setings settings
         :errors errors)
@@ -1789,7 +1774,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
   (setf
     h:*show-lisp-errors-p* t
     (h:acceptor-persistent-connections-p *http-server*) nil)
-  (u:log-it-pairs :info :in "start-web-server"
+  (pl:pinfo :in "start-web-server"
     :status "server started"
     :endpoint (format nil "http://localhost:~d" *http-port*))
   (h:start *http-server*))
@@ -1855,7 +1840,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                           (remove-setting settings
                             "password" "confirm-password")
                           (remove-setting settings "confirm-password"))))
-    (u:log-it-pairs :debug :in "process-settings-password"
+    (pl:pdebug :in "process-settings-password"
       :trace "settings"
       :settings (format nil "~a" settings)
       :new-settings (format nil "~a" new-settings)
@@ -1872,7 +1857,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                   (push "Invalid email. Email not changed." errors)
                   (remove-setting settings "email")))
               (remove-setting settings "email"))))
-    (u:log-it-pairs :debug :in "process-settings-email"
+    (pl:pdebug :in "process-settings-email"
       :trace "settings"
       :settings (format nil "~a" settings)
       :new-settings (format nil "~a" processed)
@@ -1891,7 +1876,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                                   (list psettings errors))
     when errors append errors into all-errors
     finally
-    (u:log-it-pairs :debug :in "process-settings"
+    (pl:pdebug :in "process-settings"
       :trace "settings"
       :settings (format nil "~a" settings)
       :new-settings (format nil "~a" new-settings)
@@ -1911,21 +1896,21 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
     (when (and user-id actor-id)
       (cond
         ((equal key "password")
-          (u:log-it-pairs :debug :in "update-settings-sql"
+          (pl:pdebug :in "update-settings-sql"
             :trace "settings" :sql-choice "password"
             :key key :value value)
           (list
             "update users set password_hash = $1, updated_by = $2 where id = $3"
             (a:password-hash user value) actor-id user-id))
         ((equal key "email")
-          (u:log-it-pairs :debug :in "update-settings-sql"
+          (pl:pdebug :in "update-settings-sql"
             :trace "settings" :sql-choice "email"
             :key key :value value)
           (list
             "update users set email = $1, updated_by = $2 where id = $3"
             value actor-id user-id))
         ((setting-exists *default-user-settings* key)
-          (u:log-it-pairs :debug :in "update-settings-sql"
+          (pl:pdebug :in "update-settings-sql"
             :trace "settings" :sql-choice "regular-setting"
             :key key :value value)
           (list
@@ -1939,30 +1924,32 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
               updated_by = excluded.updated_by,
               updated_at = now()")
             user-id key (serialize value) actor-id))
-        (t
-          (u:log-it-pairs :error :in "update-settings-sql"
-            :trace "settings" :status "unknown setting" :setting key)
-          nil)))))
+        (t nil)))))
+        ;; (t
+        ;;   (pl:perror :in "update-settings-sql"
+        ;;     :trace "settings" :status "unknown setting" :setting key))))))
 
 (defun update-user-setting (user key value actor)
   (when (setting-needs-update user key value)
     (let ((query (update-settings-sql key value user actor)))
       (if query
-        (handler-case
-          (progn
-            (a:with-rbac (*rbac*) (a:rbac-query query))
-            (u:log-it-pairs :debug :in "update-user-setting"
-              :trace "settings" :status "success"
-              :key key :value value :user user :actor actor)
-            t)
-          (error (e)
-            (u:log-it-pairs :error :in "update-user-setting"
-              :trace "settings"
-              :status "fail" :error (format nil "~a" e)
-              :key key :value value :user user :actor actor)
-            nil))
         (progn
-          (u:log-it-pairs :error :in "update-user-setting"
+          (handler-case
+            (progn
+              (a:with-rbac (*rbac*) (a:rbac-query query))
+              (pl:pdebug :in "update-user-setting"
+                :trace "settings" :status "success"
+                :key key :value value :user user :actor actor)
+              t)
+            (error (e)
+              (progn
+                (pl:perror :in "update-user-setting"
+                  :trace "settings"
+                  :status "fail" :error (format nil "~a" e)
+                  :key key :value value :user user :actor actor)
+                nil))))
+        (progn
+          (pl:perror :in "update-user-setting"
             :status "fail" :error "unknown user, actor, or setting"
             :key key :value value :user user :actor actor)
           nil)))))
@@ -1970,7 +1957,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
 (defun create-user-settings (user)
   (loop with user-id = (or (a:get-id *rbac* "users" user)
                          (progn
-                           (u:log-it-pairs :error :in "create-user-settings"
+                           (pl:perror :in "create-user-settings"
                              :status "unknown user" :user user)
                            (return-from create-user-settings nil)))
     for setting in *default-user-settings*
@@ -1978,16 +1965,19 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
                    "user_id" user-id
                    "setting_key" (getf setting :setting))
     unless exists
-    do (update-user-setting user (car setting) (cadr setting) *admin*)
-    and collect (car setting)))
+    do (update-user-setting
+         user
+         (getf setting :setting)
+         (getf setting :value)
+         *admin*)
+    and collect (getf setting :setting)))
 
 (defun init-database ()
-  (u:log-it-pairs :info :in "init-database"
+  (pl:pinfo :in "init-database"
     :host *db-host*
     :port *db-port*
     :db-name *db-name*
-    :db-username *db-username*
-    *db-host* *db-port* *db-name* *db-username*)
+    :db-username *db-username*)
   ;; Create the connection
   (setf *rbac* (make-instance 'a:rbac-pg
                  :host *db-host*
@@ -2036,29 +2026,33 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
     do (sleep 5)))
 
 (defun run ()
-  (u:open-log *log-file* :severity-threshold *log-severity-threshold*)
-  (u:log-it-pairs :info :in "run" :status "Initializing database")
+  (pl:make-log-stream "standard-log" *log-file*
+    :severity-threshold *log-severity-threshold*)
+  (pl:pinfo :in "run" :status "Initializing database")
   ;; Initialize the database
   (let ((success (handler-case (init-database)
                    (error (condition)
-                     (u:log-it :error (format nil "~a" condition))
+                     (pl:perror :error (format nil "~a" condition))
                      nil))))
-    (u:log-it-pairs :debug :in "run"
+    (pl:pdebug :in "run"
       :status "database initialized"
       :success (if success "success" "failure"))
 
-    ;; Start the Swank server
-    (unless *swank-server*
-      (u:log-it-pairs :info :in "run" :status "starting swank")
-      (setf *swank-server*
-        (swank:create-server
-          :interface "0.0.0.0"
-          :port 4005
-          :style :spawn
-          :dont-close t)))
+    (pl:pinfo :in "run" :status "starting swank")
+    (start-swank)
+
     (when (and success (not *http-server*))
       ;; Start the Web server
       (start-web-server))
     (loop while t do
       (periodic-directory-sync)
       (sleep 5))))
+
+(defun start-swank ()
+  (unless *swank-server*
+    (setf *swank-server*
+      (swank:create-server
+        :interface "0.0.0.0"
+        :port *swank-port*
+        :style :spawn
+        :dont-close t))))

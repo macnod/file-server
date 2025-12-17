@@ -1,0 +1,56 @@
+#!/bin/bash
+
+TEST_FILE=$1
+
+# File Server Lisp Environment
+export DB_HOST="127.0.0.1"
+export DB_PORT="5434"
+export DB_NAME="fileserver"
+export DB_USER="fileserver"
+export DB_PASSWORD="fileserver-password"
+export ADMIN_PASSWORD="admin-password-1234"
+export JWT_SECRET="yhQ5PFnwwVGTEOQ6pujBVwq9EPZ0wlWU"
+export WEB_DIRECTORY=$(readlink -f "$PWD/tests/web")
+export FS_DOCUMENT_ROOT=$(readlink -f "$PWD/tests/files")
+export FS_TEMP_DIRECTORY=$(readlink -f "$PWD/tests/temp-files")
+export LOG_FILE=$(readlink -f "$PWD/tests/tests.log")
+export HTTP_PORT="8091"
+export SWANK_PORT="4006"
+
+# Needed to avoid prompting in psql calls
+export PGPASSWORD="$DB_PASSWORD"
+
+if [[ -z "$TEST_FILE" ]]; then
+    echo "Usage: $(basename $0) {test-file}"
+    exit 1
+fi
+
+echo
+echo "Starting PosgreSQL"
+docker-compose -f tests/docker-compose-pg.yaml up -d &>/dev/null
+until docker-compose -f tests/docker-compose-pg.yaml exec -it pgtest \
+  pg_isready -U postgres &>/dev/null; do
+  echo "Waiting for postgres..."
+  sleep 1
+done
+echo "PostgreSQL is up on port ${DB_PORT}"
+sleep 2
+
+echo
+echo "Initializing database"
+psql -h $DB_HOST -p $DB_PORT -d $DB_NAME -U $DB_USER \
+     -f tests/db-init/init.sql >&/dev/null
+
+# Run the tests
+echo
+echo "Running tests"
+ros run -- --disable-debugger --load "$TEST_FILE" --quit
+REPORT=$( [[ $? -eq 0 ]] && echo "PASS" || echo "FAIL" )
+
+# Stop PostgreSQL
+echo
+echo "Stopping PostgreSQL"
+docker-compose -f tests/docker-compose-pg.yaml down &>/dev/null
+
+echo
+echo "===> $REPORT <==="

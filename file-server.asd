@@ -3,15 +3,17 @@
   :author "Donnie Cameron <macnod@gmail.com>"
   :licence "MIT License"
   :depends-on (:cl-ppcre
-                :dc-eclectic
                 :hunchentoot
-                :rbac
                 :swank
                 :spinneret
                 :jose
                 :lass
+                :postmodern
                 :dc-ds
-                :postmodern)
+                :dc-time
+                :p-log
+                :rbac
+                :dc-eclectic)
   :serial t
   :components ((:module "lisp"
                  :components ((:file "file-server-package")

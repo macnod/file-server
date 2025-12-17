@@ -1,0 +1,112 @@
+#!/bin/bash
+
+#
+# Starts the file-server repl
+#
+
+STOP=false
+
+# File Server Lisp Environment
+export DB_HOST="127.0.0.1"
+export DB_PORT="5435"
+export DB_NAME="fileserver"
+export DB_USER="fileserver"
+export DB_PASSWORD="fileserver-password"
+export ADMIN_PASSWORD="admin-password-1234"
+export JWT_SECRET="yhQ5PFnwwVGTEOQ6pujBVwq9EPZ0wlWU"
+export WEB_DIRECTORY=$(readlink -f "$PWD/dev/web")
+export FS_DOCUMENT_ROOT=$(readlink -f "$PWD/tests/files")
+export FS_TEMP_DIRECTORY=$(readlink -f "$PWD/tests/temp-files")
+export LOG_FILE=$(readlink -f "$PWD/tests/tests.log")
+export HTTP_PORT="8091"
+export SWANK_PORT="4007"
+
+# Needed to avoid prompting in psql calls
+export PGPASSWORD="$DB_PASSWORD"
+
+function usage {
+    echo "Usage: $SCRIPT_NAME [options]"
+    echo
+    echo "Starts the File Server REPL. Once the service is running, you can interact"
+    echo "with the REPL in the shell, or you can connect to the REPL via Slime, at"
+    echo "the given Swank port. When stop the REPL, this script uses docker compose"
+    echo "to terminate the PostgreSQL service."
+    echo
+    echo "Options:"
+    echo "  --db-port      The host port for the PosgreSQL database. Defaults to 5435."
+    echo "  --http-port    The host port for the HTTP server. Defaults to 8091."
+    echo "  --swank-port   The host port for the Swank service. Defaults to 4006."
+    echo "  --stop         Stop the PostgreSQL service. Normally, this script stops"
+    echo "                 the service automatically. This option allows you to stop"
+    echo "                 the service explicitly if the script fails before it can"
+    echo "                 stop the service itself."
+}
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --stop)
+            STOP=true
+            ;;
+        --db-port)
+            shift
+            DB_PORT="$1"
+            ;;
+        --http-port)
+            shift
+            HTTP_PORT="$1"
+            ;;
+        --swank-port)
+            shift
+            SWANK_PORT="$1"
+            ;;
+        --help)
+            usage
+            exit 0
+            ;;
+        help)
+            usage
+            exit 0
+            ;;
+        *)
+            echo "Unknown option $1"
+            exit 1
+            ;;
+    esac
+    shift
+done
+
+if [[ "$STOP" = false ]]; then
+	echo
+	echo "Starting PosgreSQL"
+	docker-compose -f tests/docker-compose-pg.yaml up -d &>/dev/null
+
+	echo
+	echo "Waiting for PostgreSQL"
+	until docker-compose -f tests/docker-compose-pg.yaml exec -it pgtest \
+	  pg_isready -U postgres &>/dev/null; do
+	  echo "  Waiting..."
+	  sleep 1
+	done
+	echo "PostgreSQL is up on port ${DB_PORT}"
+	sleep 2
+
+	echo
+	echo "Initializing database"
+	psql -h "$DB_HOST" -p "$DB_PORT" -f -d "$DB_NAME" -U "$DB_USER" \
+       -f tests/db-init/init.sql >&/dev/null
+
+	echo
+	echo "Starting File Server REPL"
+	ros run -- \
+      --eval "(require :file-server)" \
+      --eval "(in-package :file-server)" \
+      --eval "(start-swank)";
+fi
+
+echo
+echo "Stopping PostgreSQL"
+if [[ "$STOP" = false ]]; then
+    docker-compose -f tests/docker-compose-pg.yaml down &>/dev/null
+else
+    docker-compose -f tests/docker-compose-pg.yaml down
+fi

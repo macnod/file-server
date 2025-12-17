@@ -1,5 +1,12 @@
 (in-package :file-server)
 
+;; JWT Secret
+(defparameter *jwt-secret*
+  (b:string-to-octets (u:getenv "JWT_SECRET" :default "32-char secret")))
+
+(defparameter *rbac* nil)
+
+
 ;;
 ;; BEGIN JWT Token
 ;;
@@ -7,7 +14,7 @@
 (defun issue-jwt (user-id &optional (expiration-seconds 3600))
   "Issue a JWT for a user."
   (let* ((claims `(("sub" . ,user-id)
-                    ("exp" . ,(+ (u:universal-time-to-unix-time)
+                    ("exp" . ,(+ (dt:universal-time-to-unix-time)
                                 expiration-seconds)))))
     (j:encode :hs256 *jwt-secret* claims)))
 
@@ -25,20 +32,19 @@ exists. Otherwise, logs a message and returns NIL."
                           (a:get-value *rbac* "users" "username"
                             "id" user-id)
                           (error (e)
-                            (u:log-it
-                              :warn
-                              "JWT has invalid user ID: ~a" e)
+                            (pl:pwarn :status "invalid user id in jwt"
+                              :condition e)
                             nil))))
               (if user
                 user
                 (progn
-                  (u:log-it :warn "User with ID ~a not found" user-id)
+                  (pl:pwarn :status "user id not in database" :user-id user-id)
                   nil)))
             (progn
-              (u:log-it :warn "User ID not found in JWT")
+              (pl:pwarn :status "user id not in jwt")
               nil)))))
     (error (e)
-      (u:log-it :warn "Invalid JWT: ~a" e)
+      (pl:pwarn :status "invalid jwt" :condition e)
       nil)))
 
 ;;
@@ -51,11 +57,12 @@ exists. Otherwise, logs a message and returns NIL."
 
 (defun invert-hex-color (hex-string)
   "Return the inverse color of the color represented by HEX-STRING. HEX-STRING
-is a 3-digit or 6-digit hexadecimal value that is optionally prefixed by the
-# symbol. Examples of valid values for HEX-STRING: #00FF33, #FFF, AA77CE, 123.
+is a 3-digit or 6-digit hexadecimal value that is optionally prefixed by the #
+symbol. Examples of valid values for HEX-STRING: #00FF33, #FFF, AA77CE, 123.
 This function returns the inverted value using the same number of hexadecimal
-digits provided in HEX-STRING, but always prefixes the return value with the
-# symbol. If HEX-STRING is invalid, this function raises an error."
+digits provided in HEX-STRING, but always prefixes the return value with the #
+symbol and in upper case. If HEX-STRING is invalid, this function raises an
+error."
   (let* ((color (string-trim "# " hex-string))
           (short (= (length color) 3))
           (full-color (if short
@@ -78,22 +85,6 @@ digits provided in HEX-STRING, but always prefixes the return value with the
                               hex-components)))
     (format nil "#~{~a~}" final-components)))
 
-(defun alist-to-hash-table (alist)
-  "Converts a ALIST, which is a Common Lisp a-list, into a hash table, using
-ALIST keys as the hash table keys and ALIST values as the hash table
-values. When ALIST contains a repeated key, the hash table value associated with
-the repeated key becomes an array of the ALIST values."
-  (loop with h = (make-hash-table :test 'equal)
-    for (key . value) in alist
-    for existing = (gethash key h)
-    when (null existing) do
-    (let ((array (setf (gethash key h)
-                   (make-array 100 :adjustable t :fill-pointer 0))))
-      (vector-push-extend value array))
-    else do
-    (vector-push-extend value existing)
-    finally (return h)))
-
 (defgeneric has (reference-list thing)
   (:documentation "Returns T if REFERENCE-LIST contains THING. If THING is a
 string, this function checks for that string in REFERENCE-LIST. If THING is a
@@ -107,9 +98,11 @@ list, this function checks that all elements of THING are in REFERENCE-LIST.")
 
 (defun has-some (reference-list query-list)
   "Returns T if REFERENCE-LIST contains any of the elements in QUERY-LIST."
-  (when
-    (some (lambda (s) (member s reference-list :test 'equal)) query-list)
-    t))
+  (if (null query-list)
+    t
+    (when
+      (some (lambda (s) (member s reference-list :test 'equal)) query-list)
+      t)))
 
 (defgeneric exclude (reference-list exclude)
   (:documentation "Returns a list containing the elements of REFERENCE-LIST
@@ -127,33 +120,16 @@ all elements in EXCLUDE."
       (lambda (s) (member s exclude :test 'equal))
       reference-list)))
 
-(defun exclude-regex (reference-list exclude)
-  "Returns a list of the elements of REFERENCE-LIST that don't match the
-EXCLUDE regular expression."
-  (remove-if (lambda (s) (re:scan exclude s)) reference-list))
-
 (defun exclude-regex (reference-list exclude &optional exceptions)
   "Returns a list of the elements of REFERENCE-LIST that that don't match the
-EXCLUDE regular expression. However, elements that match EXCEPTIONS are not
-excluded, even if they match EXCLUDE."
+EXCLUDE regular expression. However, elements that are not in EXCEPTIONS are
+not excluded, even if they match EXCLUDE."
   (remove-if (lambda (s)
                (and
+                 exclude
                  (not (member s exceptions :test 'equal))
                  (re:scan exclude s)))
     reference-list))
-
-(defgeneric exclude-except (reference-list exclude exceptions)
-  (:documentation "Returns a list containing the elements of REFERENCE-LIST
-that don't match the EXCLUDE regular expression and that don't match
-EXCEPTIONS.")
-  (:method ((reference-list list) (exclude string) (exceptions list))
-    "Returns a list containing the elements of REFERENCE-LIST that don't match
-EXCLUDE and are not among EXCEPTIONS."
-    (remove-if
-      (lambda (s)
-        (and (re:scan exclude s)
-          (not (member s exceptions :test 'equal))))
-      reference-list)))
 
 (defun exclusive-role-for (username)
   "Returns the exclusive role for USERNAME."
@@ -162,12 +138,12 @@ EXCLUDE and are not among EXCEPTIONS."
 (defun additional-text (count-actual count-listed count-total)
   "Returns a string indicating, in fuzzy terms, how many additional items, beyond
 COUNT-LISTED, exist and are not being shown. COUNT-ACTUAL is the actual number
-of items being considered. COUNT-TOTAL is the maximum number of items taht will
+of items being considered. COUNT-TOTAL is the maximum number of items that can
 be pulled from the data source. COUNT-LISTED is the maximum number of items that
 can be shown. If COUNT-ACTUAL is less than or equal to COUNT-LISTED, this
-function returns an empty string, because no notice of additional items is
-needed. If COUNT-ACTUAL is greater than COUNT-LISTED, but less than COUNT-TOTAL,
-this function returns a string indicating the number of items that are not being
+function returns nil, because no notice of additional items is needed. If
+COUNT-ACTUAL is greater than COUNT-LISTED, but less than COUNT-TOTAL, this
+function returns a string indicating the number of items that are not being
 shown. If COUNT-ACTUAL is equal or greater than COUNT-TOTAL, this function
 returns a string indicating that there are many more items not being shown,
 without specifying how many."
@@ -191,7 +167,7 @@ without specifying how many."
 YYYY-MM-DD HH:MM. If UNIVERSAL-TIME is NIL or :NULL, this function returns an
 empty string."
   (if (and universal-time (not (eql universal-time :null)))
-    (let ((ts (u:timestamp-string :universal-time universal-time)))
+    (let ((ts (dt:timestamp-string :universal-time universal-time)))
       (subseq (re:regex-replace "T" ts " ") 0 16))
     ""))
 
@@ -378,7 +354,7 @@ empty string."
 
 (defun render-pager (url current-page page-size element-count
                       &optional (link-count 5))
-  (u:log-it-pairs :debug :in "render-pager"
+  (pl:pdebug :in "render-pager"
     :url url
     :current-page current-page
     :page-size page-size
@@ -394,7 +370,7 @@ empty string."
     with check-current-page = (when (or
                                       (< current-page 1)
                                       (> current-page page-count))
-                                (u:log-it-pairs :error
+                                (pl:perror
                                   :in "render-pager"
                                   :status "current-page is out of bounds"
                                   :current-page current-page
