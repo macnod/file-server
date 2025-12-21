@@ -12,6 +12,7 @@ export DB_PORT="5435"
 export DB_NAME="fileserver"
 export DB_USER="fileserver"
 export DB_PASSWORD="fileserver-password"
+export DB_CONTAINER="pg-fs-test"
 export ADMIN_PASSWORD="admin-password-1234"
 export JWT_SECRET="yhQ5PFnwwVGTEOQ6pujBVwq9EPZ0wlWU"
 export WEB_DIRECTORY=$(readlink -f "$PWD/dev/web")
@@ -82,7 +83,7 @@ if [[ "$STOP" = false ]]; then
 
 	echo
 	echo "Waiting for PostgreSQL"
-	until docker-compose -f tests/docker-compose-pg.yaml exec -it pgtest \
+	until docker-compose -f tests/docker-compose-pg.yaml exec -it $DB_CONTAINER \
 	  pg_isready -U postgres &>/dev/null; do
 	  echo "  Waiting..."
 	  sleep 1
@@ -92,7 +93,7 @@ if [[ "$STOP" = false ]]; then
 
 	echo
 	echo "Initializing database"
-	psql -h "$DB_HOST" -p "$DB_PORT" -f -d "$DB_NAME" -U "$DB_USER" \
+	psql -h $DB_HOST -p $DB_PORT -f -d $DB_NAME -U $DB_USER \
        -f tests/db-init/init.sql >&/dev/null
 
 	echo
@@ -103,10 +104,11 @@ if [[ "$STOP" = false ]]; then
       --eval "(start-swank)";
 fi
 
-echo
 echo "Stopping PostgreSQL"
 if [[ "$STOP" = false ]]; then
+    # Stop normally (quietly)
     docker-compose -f tests/docker-compose-pg.yaml down &>/dev/null
 else
+    # Exclicit --stop, so stop verbosely
     docker-compose -f tests/docker-compose-pg.yaml down
 fi

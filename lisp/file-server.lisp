@@ -274,7 +274,9 @@
 
 (defun db-directory-id (directory)
   "Determines if DIRECTORY exists as a resource in the database, returning the
-directory's ID if it does and NIL otherwise."
+directory's ID if it does and NIL otherwise. DIRECTORY must be an absolute
+path that excludes *DOCUMENT-ROOT* and that starts and ends with a slash, such
+as '/one/' or '/one/two/'."
   (a:get-id *rbac* *resources-table* directory))
 
 (defun db-user-id (user password)
@@ -290,7 +292,7 @@ directory's ID if it does and NIL otherwise."
         (pl:perror :in "db-list-roles"
           :status "failed to retrieve roles for user"
           :user user
-          :error (format nil "~a" e))
+          :error (princ-to-string e))
         nil))))
 
 (defun ensure-immutable-user-roles (username)
@@ -313,9 +315,55 @@ directory's ID if it does and NIL otherwise."
              :page-size *max-page-size*)))
 
 (defun db-add-resource (resource &key roles)
+  "This is an internal, helper function for SYNC-DIRECTORIES. It should
+never be called to add a directory, because it doesn't add the directory
+to the file system. Instead, when you want to add a directory to the
+file server, use the DB-ADD-DIRECTORY function."
   (let ((all-roles (u:distinct-values
                      (append roles (list *admin-role* *system-role*)))))
     (a:d-add-resource *rbac* resource :roles all-roles)))
+
+(defun db-add-directory (directory &key roles)
+  "Creates DIRECTORY in the file system and adds the directory to the database
+as a resource. DIRECTORY must be an absolute path that doesn't include
+*DOCUMENT-ROOT*. DIRECTORY must start and end with a slash. If this function
+fails, it logs the failure and returns NIL. Otherwise, upon success, the
+function returns T."
+  (unless (re:scan "^/.+/$" directory)
+    (pl:perror :in "db-add-directory"
+      :status "invalid directory"
+      :error "missing slashes at beginning or end"
+      :directory directory
+      :roles roles)
+    nil)
+  (let ((dir (if (and
+                   (> (length directory) (length *document-root*))
+                   (equal
+                     (subseq directory 0 (length *document-root*))
+                     *document-root*))
+               (subseq directory (1- (length *document-root*)))
+               directory))
+         (all-roles (u:distinct-values
+                      (append roles (list *admin-role* *system-role*)))))
+    (handler-case
+      (progn
+        (ensure-directories-exist (absolute-directory-path dir))
+        (a:d-add-resource *rbac* dir :roles all-roles)
+        (pl:pinfo :in "db-add-directory"
+          :status "added directory"
+          :directory directory
+          :absolute-path (absolute-directory-path dir)
+          :resource-name dir)
+        t)
+      (error (e)
+        (pl:perror :in "db-add-directory"
+          :status "failed to add directory"
+          :error e
+          :directory directory
+          :absolute-path (absolute-directory-path dir)
+          :resource-name dir)
+        nil))))
+
 
 (defun fs-list-directories ()
   (let* ((dirs (mapcar
@@ -336,7 +384,8 @@ directory's ID if it does and NIL otherwise."
   "Ensures that directories that have been added to the file system are added to
 the RBAC database, and that directories that have been removed from the file
 system are removed from the RBAC database. The resources in the RBAC database
-should correspond exactly to the directories in the file system."
+should correspond exactly to the directories in the file system. In other words,
+the directories in the file system are the source of truth."
   (pl:pdebug :in "sync-directories")
   (let* ((fs-dirs (fs-list-directories))
           (db-dirs (resource-names))
@@ -388,6 +437,8 @@ file name and returns the path to the file with a trailing slash."
   (a:user-allowed *rbac* user "update" path))
 
 (defun list-files (abs-path)
+  "Returns a list of files in ABS-PATH, where each file looks like an absolute
+path, but starts at *DOCUMENT-ROOT*."
   (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
@@ -397,6 +448,7 @@ file name and returns the path to the file with a trailing slash."
       (uiop:directory-files path))))
 
 (defun rdl-subdirectories (user abs-path)
+  "Returns a list of directories at ABS-PATH for which USER has read access."
   (let ((path (if (re:scan "/$" abs-path)
                 abs-path
                 (format nil "~a/" abs-path))))
@@ -464,10 +516,22 @@ file name and returns the path to the file with a trailing slash."
     into breadcrumbs
     finally (return (format nil "~{~a~^/~}" breadcrumbs))))
 
-(defun directory-roles (path)
-  (let* ((count-listed 5)
-          (count-total 20)
-          (raw-roles (resource-roles path))
+(defun directory-roles (path &key (count-listed 5) (count-total 20))
+  "Returns a list of the roles associated with PATH.
+
+If the number of roles is less than or equal to COUNT-LISTED, the roles are returned.
+
+If the number of roles is greater than COUNT-LISTED and less than COUNT-TOTAL, this
+function returns the first 5 roles and the string 'and N more', where N
+is the number of roles above COUNT-LISTED.
+
+If the number of roles is equal or greater than COUNT-TOTAL, this function returns
+the first 5 roles and the string 'and many more'.
+
+The 'admin' and 'system' roles are always excluded.
+
+If the roles include the 'public' role, this function returns only the public role."
+  (let* ((raw-roles (resource-roles path))
           (admin-roles (list *admin-role* "system"))
           (roles (if (has raw-roles *public-role*)
                    (list *public-role*)
@@ -607,7 +671,6 @@ file name and returns the path to the file with a trailing slash."
             "There were errors with your submission"
             errors
             (list :username username :redirect redirect)))))
-
     (let ((user-id (db-user-id username password)))
       (if user-id
         (let ((token (issue-jwt user-id)))
@@ -716,6 +779,11 @@ file name and returns the path to the file with a trailing slash."
           (h:handle-static-file abs-path))))))
 
 (defun user-list-user-roles (user)
+  "The list of USER roles displayed in the user list. Displays all the roles
+associated with the user except the user's exclusive role and the logged-in
+role. If the public role is the user's only role, then that role comprises
+the result. Otherwise, the public role is a given and not included in the
+result list."
   (let ((roles (exclude-regex
                  (exclude
                    (user-roles user)
@@ -981,7 +1049,6 @@ file name and returns the path to the file with a trailing slash."
                         (loop for param in error-list
                           collect (:li :class "error-item" param)))))))
           (logs (append (list
-                          log-level
                           :in in
                           :action action
                           :user user
@@ -1063,8 +1130,7 @@ directory."
       :resource resource
       :absolute-path absolute-path
       :all-roles all-roles)
-    (ensure-directories-exist absolute-path)
-    (db-add-resource resource :roles all-roles))
+    (db-add-directory resource :roles all-roles))
   "directory")
 
 (define-add-handler (upload-file-handler "/upload-file"
@@ -1713,7 +1779,7 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         finally
         (pl:plog :info
           (log-pairs-from-list
-            (list :info :in "settings-do-handler"
+            (list :in "settings-do-handler"
               :trace "settings"
               :status (if updated-settings
                         "setings updated"
@@ -2032,7 +2098,8 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
   ;; Initialize the database
   (let ((success (handler-case (init-database)
                    (error (condition)
-                     (pl:perror :error (format nil "~a" condition))
+                     (pl:perror :status "failed to initialize database"
+                       :condition (format nil "~a" condition))
                      nil))))
     (pl:pdebug :in "run"
       :status "database initialized"
@@ -2056,3 +2123,6 @@ calling U:LOGIT-PAIRS from an HTTP request handler."
         :port *swank-port*
         :style :spawn
         :dont-close t))))
+
+(defun logger-version ()
+  (pl:pversion))
