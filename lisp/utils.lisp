@@ -131,10 +131,6 @@ not excluded, even if they match EXCLUDE."
                  (re:scan exclude s)))
     reference-list))
 
-(defun exclusive-role-for (username)
-  "Returns the exclusive role for USERNAME."
-  (format nil "~a:exclusive" username))
-
 (defun additional-text (count-actual count-listed count-total)
   "Returns a string indicating, in fuzzy terms, how many additional items, beyond
 COUNT-LISTED, exist and are not being shown. COUNT-ACTUAL is the actual number
