@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: file-server-{{ .Values.environment }}-pvc
+  namespace: {{ .Values.namespace }}
+  labels:
+    {{- include "file-server.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: {{ .Values.fileServer.storageSize | default "1Gi" }}
+  volumeName: file-server-{{ .Values.environment }}-pv
+  storageClassName: ""

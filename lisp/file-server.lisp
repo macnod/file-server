@@ -1474,6 +1474,9 @@ directory."
       *system-role*)
     (remove-if-not (lambda (r) (re:scan ":exclusive$" r)) (role-names))))
 
+(defun exclusive-role-for (user)
+  (format nil "~a:exclusive" user))
+
 (defun excluded-from-role-list ()
   (list
     (exclusive-role-for *public-role*)

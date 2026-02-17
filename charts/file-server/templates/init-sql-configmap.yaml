@@ -1,0 +1,174 @@
+apiVersion: v1
+data:
+  init.sql: "--\n-- schema\n--\n\ncreate extension if not exists \"uuid-ossp\";\n\n\\c
+    fileserver\n\n--\n-- role-based access control (rbac) tables\n-- \n\n-- users\ncreate
+    table users (\n    id uuid primary key default uuid_generate_v4(),\n    created_at
+    timestamp not null default now(),\n    updated_at timestamp not null default now(),\n
+    \   deleted_at timestamp default null,\n    updated_by uuid not null references
+    users(id),\n    last_login timestamp,\n    username text not null unique,\n    password_hash
+    text not null,\n    email text not null\n);\n\n-- Not part of RBAC, just needed
+    for file-server functionality\ncreate table user_settings (\n    id uuid primary
+    key default uuid_generate_v4(),\n    created_at timestamp not null default now(),\n
+    \   updated_at timestamp not null default now(),\n    deleted_at timestamp default
+    null,\n    updated_by uuid not null references users(id) on delete cascade,\n
+    \   user_id uuid not null references users(id) on delete cascade,\n    setting_key
+    text not null,\n    setting_value text not null,\n    unique(user_id, setting_key)\n);\n\n--
+    permissions\ncreate table permissions (\n    id uuid primary key default uuid_generate_v4(),\n
+    \   created_at timestamp not null default now(),\n    updated_at timestamp not
+    null default now(),\n    deleted_at timestamp default null,\n    updated_by uuid
+    not null references users(id) on delete cascade,\n    permission_name text not
+    null unique,\n    permission_description text\n);\n\n-- Roles. Permissions are
+    associated with roles only, never directly with a\n-- user. Each user has a role
+    that is associated with that user only, that has a\n-- role_name in the format
+    \"{username}:exclusive\", that has a role_description\n-- that reads \"Exclusive
+    role for user {username).\", and that has the\n-- exclusive field set to true.\ncreate
+    table roles (\n    id uuid primary key default uuid_generate_v4(),\n    created_at
+    timestamp not null default now(),\n    updated_at timestamp not null default now(),\n
+    \   deleted_at timestamp default null,\n    updated_by uuid not null references
+    users(id) on delete cascade,\n    role_name text not null unique,\n    role_description
+    text,\n    exclusive boolean not null default false\n);\n\n-- Resources. Things
+    that require permissions for a user to be able to access\n-- them.\ncreate table
+    resources (\n    id uuid primary key default uuid_generate_v4(),\n    created_at
+    timestamp not null default now(),\n    updated_at timestamp not null default now(),\n
+    \   deleted_at timestamp default null,\n    updated_by uuid not null references
+    users(id) on delete cascade,\n    resource_name text not null unique,\n    resource_description
+    text\n);\n\n-- Permissions associated with each role\ncreate table role_permissions(\n
+    \   id uuid primary key default uuid_generate_v4(),\n    created_at timestamp
+    not null default now(),\n    updated_at timestamp not null default now(),\n    deleted_at
+    timestamp default null,\n    updated_by uuid not null references users(id) on
+    delete cascade,\n    role_id uuid not null references roles(id) on delete cascade,\n
+    \   permission_id uuid not null references permissions(id) on delete cascade,\n
+    \   unique(role_id, permission_id)\n);\n\n-- Users associated with each role.
+    A role with exclusive = true can have only\n-- one user. Other roles can have
+    unlimited users.\ncreate table role_users (\n    id uuid primary key default uuid_generate_v4(),\n
+    \   created_at timestamp not null default now(),\n    updated_at timestamp not
+    null default now(),\n    deleted_at timestamp default null,\n    updated_by uuid
+    not null references users(id) on delete cascade,\n    role_id uuid not null references
+    roles(id) on delete cascade,\n    user_id uuid not null references users(id) on
+    delete cascade,\n    unique(user_id, role_id)\n);\n\n-- Roles and permissions
+    associated with a resource.\ncreate table resource_roles (\n    id uuid primary
+    key default uuid_generate_v4(),\n    created_at timestamp not null default now(),\n
+    \   updated_at timestamp not null default now(),\n    deleted_at timestamp default
+    null,\n    updated_by uuid not null references users(id) on delete cascade,\n
+    \   resource_id uuid not null references resources(id) on delete cascade,\n    role_id
+    uuid not null references roles(id) on delete cascade,\n    unique(resource_id,
+    role_id)\n);\n\n--\n-- Indexes for soft deletes\n--\n\n-- users table\ncreate
+    index idx_users_deleted_at on users(deleted_at);\n\n-- permissions table\ncreate
+    index idx_permissions_deleted_at on permissions(deleted_at);\n\n-- roles table\ncreate
+    index idx_roles_deleted_at on roles(deleted_at);\n\n-- resources table\ncreate
+    index idx_resources_deleted_at on resources(deleted_at);\n\n-- role_permissions
+    table\ncreate index idx_role_permissions_deleted_at on role_permissions(deleted_at);\n\n--
+    role_users table\ncreate index idx_role_users_deleted_at on role_users(deleted_at);\n\n--
+    resource_roles table\ncreate index idx_resource_roles_deleted_at on resource_roles(deleted_at);\n\n--\n--
+    Partial indexes for soft deletes\n--\n\ncreate index idx_users_active on users(username)
+    where deleted_at is null;\ncreate index idx_roles_active on roles(role_name) where
+    deleted_at is null;\ncreate index idx_permissions_active on permissions(permission_name)
+    \n    where deleted_at is null;\ncreate index idx_resources_active on resources(resource_name)
+    \n    where deleted_at is null;\n\n\n--\n-- Triggers for updated_at column\n--\n\n--
+    Function for trigger that will set the updated_at column to the current time\n--
+    whenever a row is updated in the table.\ncreate or replace function set_updated_at_column()\nreturns
+    trigger as $$\nbegin\n    new.updated_at = now();\n    return new;\nend;\n$$ language
+    'plpgsql';\n\n-- users trigger\ncreate trigger set_users_updated_at\nbefore update
+    on users\nfor each row\nexecute function set_updated_at_column();\n\n-- permissions
+    trigger\ncreate trigger set_permissions_updated_at\nbefore update on permissions\nfor
+    each row\nexecute function set_updated_at_column();\n\n-- roles trigger\ncreate
+    trigger set_roles_updated_at\nbefore update on roles\nfor each row\nexecute function
+    set_updated_at_column();\n\n-- resources trigger\ncreate trigger set_resources_updated_at\nbefore
+    update on resources\nfor each row\nexecute function set_updated_at_column();\n\n--
+    role_permissions trigger\ncreate trigger set_role_permissions_updated_at\nbefore
+    update on role_permissions\nfor each row\nexecute function set_updated_at_column();\n\n--
+    role_users trigger\ncreate trigger set_role_users_updated_at\nbefore update on
+    role_users\nfor each row\nexecute function set_updated_at_column();\n\n-- resource_roles
+    trigger\ncreate trigger set_resource_roles_updated_at\nbefore update on resource_roles\nfor
+    each row\nexecute function set_updated_at_column();\n\n-- Function to enforce
+    exclusive role constraints:\n-- 1. Only one user can be assigned to an exclusive
+    role.\n-- 2. Exclusive role names must follow the format '{username}:exclusive'.\n--
+    3. The role description must be 'Exclusive role for user {username}.'.\ncreate
+    or replace function enforce_exclusive_role()\nreturns trigger as $$\ndeclare\n
+    \   associated_username text;\n    expected_role_name text;\n    expected_role_description
+    text;\nbegin\n    -- Check if the role is exclusive\n    if exists (select 1 from
+    roles where id = new.role_id and exclusive = true) then\n        -- ensure only
+    one user is assigned to the exclusive role\n        if exists (\n            select
+    1\n            from role_users ru\n            where ru.role_id = new.role_id\n
+    \           and ru.user_id != new.user_id\n        ) then\n            raise exception
+    'exclusive role % can only have one user', new.role_id;\n        end if;\n        --
+    Get the username of the associated user\n        select u.username into associated_username\n
+    \       from users u\n        where u.id = new.user_id;\n        if associated_username
+    is null then\n            raise exception 'no valid user found for user_id %',
+    new.user_id;\n        end if;\n        -- Construct the expected role name and
+    description\n        expected_role_name := associated_username || ':exclusive';\n
+    \       expected_role_description := 'Exclusive role for user ' || associated_username
+    || '.';\n        -- Check if the role_name and role_description match the expected
+    format\n        if not exists (\n            select 1\n            from roles
+    r\n            where r.id = new.role_id\n            and r.role_name = expected_role_name\n
+    \           and r.role_description = expected_role_description\n            and
+    r.exclusive = true\n        ) then\n            raise exception 'Exclusive role
+    % must have role_name ''%'' and role_description ''%''', \n                new.role_id,
+    expected_role_name, expected_role_description;\n        end if;\n    end if;\n
+    \   return new;\nend;\n$$ language plpgsql;\n\n-- Trigger to enforce exclusive
+    role constraints on role_users insert or update\ncreate trigger enforce_exclusive_role_trigger\nbefore
+    insert or update on role_users\nfor each row\nexecute function enforce_exclusive_role();\n\n--\n--
+    insert users\n--\n\ninsert into users (username, email, id, updated_by, password_hash)
+    values\n    (\n        'system',                               -- username\n        'no-email',
+    \                            -- email\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5',
+    -- id\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- updated_by\n        'a5ad2e9965d47e970d4d6b7e123dbdb5'
+    \     -- password_hash\n    );\n\n--\n-- insert roles\n--\n\ninsert into roles
+    (role_name, role_description, exclusive, id, updated_by) values\n    -- System
+    role\n    (\n        'system',\n        'Role for system operations. This role
+    is not assigned to any user.',\n        false,\n        '200f91db-d0c8-43d1-9430-72f1fd03b285',\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n    ),\n    -- Basic roles\n    (\n
+    \       'logged-in',\n        'Role for logged-in users.',\n        false,\n        '9ad10cfa-78fe-43af-a417-0f104b64766a',\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n    ),\n    (\n        'public',\n
+    \       'Role for anonymous users that are not logged in.',\n        false,\n
+    \       'c9b6868a-0550-41eb-9c74-4d90e3ea03b5',\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n
+    \   ),\n    -- Exclusive roles. \n    (\n        'system:exclusive',\n        'Exclusive
+    role for user system.',\n        true,\n        '5afef606-07f8-4c7d-afe3-da66f00ed015',\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n    );\n\n--\n-- insert permissions\n--\n\ninsert
+    into permissions (permission_name, id, updated_by) values\n    (\n        'create',\n
+    \       '1d8f1218-7518-4c17-80f6-edb9987e8a20',\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n
+    \   ),\n    (\n        'read',\n        '784c7460-134e-4b06-9c80-d6db197a1bdf',\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n    ),\n    (\n        'update',\n
+    \       '8563f298-df16-490d-aac1-92fea8dd196d',\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n
+    \   ),\n    (\n        'delete',\n        'f77b0d67-330a-4b0d-8166-d73229547f5f',\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'\n    );\n\n--\n-- insert role-permissions\n--\n\ninsert
+    into role_permissions (role_id, permission_id, updated_by) values\n    --\n    --
+    General role permissions\n    --\n    -- system: create, read, update, delete\n
+    \   (\n        '200f91db-d0c8-43d1-9430-72f1fd03b285', -- system role\n        '1d8f1218-7518-4c17-80f6-edb9987e8a20',
+    -- create\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n
+    \   (\n        '200f91db-d0c8-43d1-9430-72f1fd03b285', -- system role\n        '784c7460-134e-4b06-9c80-d6db197a1bdf',
+    -- read\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n
+    \   (\n        '200f91db-d0c8-43d1-9430-72f1fd03b285', -- system role\n        '8563f298-df16-490d-aac1-92fea8dd196d',
+    -- update\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n
+    \   (\n        '200f91db-d0c8-43d1-9430-72f1fd03b285', -- system role\n        'f77b0d67-330a-4b0d-8166-d73229547f5f',
+    -- delete\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n
+    \   \n    --\n    -- Basic role (logged-in, public) permissions\n    --\n    --
+    logged-in: read\n    (\n        '9ad10cfa-78fe-43af-a417-0f104b64766a', -- logged-in
+    role\n        '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
+    \ -- system user\n    ),\n    -- public: read\n    (\n        'c9b6868a-0550-41eb-9c74-4d90e3ea03b5',
+    -- public role\n        '784c7460-134e-4b06-9c80-d6db197a1bdf', -- read\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
+    \ -- system user\n    ),\n\n    --\n    -- Exclusive role permissions\n    --\n
+    \   -- system:exclusive\n    (\n        '5afef606-07f8-4c7d-afe3-da66f00ed015',
+    -- system:exclusive role\n        '1d8f1218-7518-4c17-80f6-edb9987e8a20', -- create\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n    (\n
+    \       '5afef606-07f8-4c7d-afe3-da66f00ed015', -- system:exclusive role\n        '784c7460-134e-4b06-9c80-d6db197a1bdf',
+    -- read\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n
+    \   (\n        '5afef606-07f8-4c7d-afe3-da66f00ed015', -- system:exclusive role\n
+    \       '8563f298-df16-490d-aac1-92fea8dd196d', -- update\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
+    \ -- system user\n    ),\n    (\n        '5afef606-07f8-4c7d-afe3-da66f00ed015',
+    -- system:exclusive role\n        'f77b0d67-330a-4b0d-8166-d73229547f5f', -- delete\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    );\n\n--\n--
+    insert role users\n--\n\ninsert into role_users (role_id, user_id, updated_by)
+    values\n    -- Add all existing roles to the system user\n    (\n        '200f91db-d0c8-43d1-9430-72f1fd03b285',
+    -- system role\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    ),\n    (\n
+    \       '5afef606-07f8-4c7d-afe3-da66f00ed015', -- system:exclusive\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5',
+    -- system user\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n
+    \   ),\n    (\n        '9ad10cfa-78fe-43af-a417-0f104b64766a', -- logged-in role\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5'
+    \ -- system user\n    ),\n    (\n        'c9b6868a-0550-41eb-9c74-4d90e3ea03b5',
+    -- public role\n        '0ed9f765-50ee-4e93-a711-f63db14b3cf5', -- system user\n
+    \       '0ed9f765-50ee-4e93-a711-f63db14b3cf5'  -- system user\n    );\n"
+kind: ConfigMap
+metadata:
+  name: init-sql
+  namespace: misc

@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 SCRIPT_NAME=$(basename $0)
 VERSION_FILE="version.txt"
 
@@ -25,6 +27,7 @@ function usage {
     echo "  --no-deploy       Build the container image, but don't deploy."
     echo "  --push            Push the container to a container registry (CR)."
     echo "                    Must be logged into the CR."
+    echo "  --uninstall       Uninstall the release."
     echo "  --verbose         Show docker build output."
     echo "  --help            Display this help screen."
     echo
@@ -44,6 +47,7 @@ RENDERED_MANIFESTS=""
 DOCKERFILE=""
 LATEST=false
 VERBOSE=false
+UNINSTALL=false
 
 load_version
 
@@ -72,12 +76,19 @@ while [ $# -gt 0 ]; do
         --push)
             PUSH=true
             ;;
+        --uninstall)
+            UNINSTALL=true
+            ;;
         --verbose)
             VERBOSE=true
             ;;
         --help)
             usage
             exit 0
+            ;;
+        *)
+            usage
+            exit 1
             ;;
     esac
     shift
@@ -98,14 +109,13 @@ fi
 
 # For --env, only dev or prod allowed
 if [[ "$ENVIRONMENT" = "prod" ]]; then
+    # We don't build for prod
+    NO_BUILD=true
     if [[ "$LATEST" = true ]]; then
-        # We don't build for prod
-        NO_BUILD=true
         copy_dev_to_prod
         VERSION="$DEV_VERSION"
     else
         # Redeploy last prod image (or dev if none)
-        NO_BUILD=true
         if [[ "$PROD_VERSION" != "0.0.0" ]]; then
             VERSION="$PROD_VERSION"
         else
@@ -129,17 +139,34 @@ fi
 
 # These depend on the environment
 VALUES_FILE="charts/file-server/values-${ENVIRONMENT}.yaml"
+INIT_SQL_FILE="${ENVIRONMENT}/db-init/init.sql"
+INIT_SQL_CONFIGMAP="charts/file-server/templates/init-sql-configmap.yaml"
 RENDERED_MANIFESTS="${ENVIRONMENT}/kube/rendered-manifests.yaml"
 DOCKERFILE="${ENVIRONMENT}/Dockerfile"
 IMAGE="file-server"
 RELEASE_NAME="file-server-${ENVIRONMENT}"
 
-# Render the manifests
-helm template $RELEASE_NAME ./charts/file-server \
-    --namespace misc \
-    --values "$VALUES_FILE" \
-    --set image.tag="$VERSION" \
-    > $RENDERED_MANIFESTS
+if [[ "$UNINSTALL" = true ]]; then
+    uninstall_command="helm uninstall $RELEASE_NAME --namespace misc"
+    if [[ "$VERBOSE" = true ]]; then
+        echo $uninstall_command
+    fi
+    $uninstall_command
+    exit 0
+fi
+
+# Package init.sql into a configmap
+kubectl create configmap init-sql \
+    --from-file="$INIT_SQL_FILE" \
+    --namespace="misc" \
+    --dry-run=client \
+    -o yaml > "${INIT_SQL_CONFIGMAP}"
+
+render_command="helm template $RELEASE_NAME ./charts/file-server --namespace misc --values $VALUES_FILE --set fileServer.image.tag=$VERSION"
+if [[ "$VERBOSE" = true ]]; then
+    echo $render_command
+fi
+$render_command > "$RENDERED_MANIFESTS"
 echo "Rendered Kubernetes manifests to $RENDERED_MANIFESTS, with version $VERSION"
 if [[ "$RENDER_ONLY" = true ]]; then
   exit 0
@@ -158,23 +185,24 @@ if [[ "$NO_BUILD" = false ]]; then
         QUIET=""
     else
         QUIET="-q"
-        echo "Building macnod/${IMAGE}:${VERSION}..."
     fi
-    docker build ${QUIET} -f "$DOCKERFILE" \
-        $CACHE_OPTION \
-        -t "macnod/${IMAGE}:${VERSION}" \
-        -t "macnod/${IMAGE}:latest" \
-        .
+    build_command="docker build ${QUIET} -f $DOCKERFILE $CACHE_OPTION -t macnod/${IMAGE}:${VERSION} -t macnod/${IMAGE}:latest ."
+    echo "Building macnod/${IMAGE}:${VERSION}"
+    if [[ "$VERBOSE" = true ]]; then
+        echo $build_command
+    fi
+    $build_command
     echo "Completed build for macnod/${IMAGE}:${VERSION}"
 fi
 
 # Deploy
 if [[ "$NO_DEPLOY" = false ]]; then
-    helm upgrade -install $RELEASE_NAME ./charts/file-server \
-        --namespace misc \
-        --create-namespace \
-        --values "$VALUES_FILE" \
-        --set image.tag=$VERSION
+    helm_command="helm upgrade -install $RELEASE_NAME ./charts/file-server --namespace misc --create-namespace -f $VALUES_FILE --set fileServer.image.tag=$VERSION"
+    if [[ "$VERBOSE" = true ]]; then
+        echo $helm_command
+    fi
+    echo "Current directory: $PWD"
+    $helm_command
     echo "Deployed macnod/${IMAGE}:${VERSION}"
 fi
 

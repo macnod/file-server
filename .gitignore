@@ -41,3 +41,5 @@ dev/shared-files/*
 # Helm
 prod/kube/rendered-manifests.yaml
 dev/kube/rendered-manifests.yaml
+tests/*.log
+/ai/

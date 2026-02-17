@@ -41,6 +41,10 @@ WORKDIR /
 RUN rm -rf $ROSWELL_SRC_DIR
 RUN $ROSWELL setup
 
+RUN mkdir /app
+COPY dev/web /app/web
+RUN mkdir /app/temp-files
+
 #
 # END
 #
@@ -62,12 +66,14 @@ RUN $ROSWELL install postmodern && \
 
 # Stable macnod packages
 RUN $ROSWELL install macnod/dc-ds && \
-    $ROSWELL install macnod/dc-dlist
+    $ROSWELL install macnod/dc-dlist && \
+    $ROSWELL install macnod/dc-time && \
+    $ROSWELL install macnod/p-log
 
 # Changing macnod packages
 ARG CACHEBUST=1
 RUN $ROSWELL install macnod/dc-eclectic && \
-    $ROSWELL install macnod/rbac
+    $ROSWELL install macnod/rbac/v0.05
 
 # This project
 RUN $ROSWELL install macnod/file-server/dev

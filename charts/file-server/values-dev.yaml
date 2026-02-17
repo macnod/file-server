@@ -2,12 +2,6 @@ environment: dev
 
 namespace: misc
 
-image:
-  # This will be set by the build script
-  tag: "0.0.0"
-
-  pullPolicy: Never
-
 fileServer:
   port: 3021
   nodePort: 30211
@@ -16,6 +10,11 @@ fileServer:
     cpu: 250m
   limits:
     cpu: 1000m
+  storageSize: 1Gi
+  image:
+    pullPolicy: IfNotPresent
+    # This will be set by the build script
+    tag: "0.0.0"
 
 swankServer:
   port: 4106
@@ -26,4 +25,6 @@ postgres:
   port: 5441
   nodePort: 30201
   storageSize: 100Mi
-  hostPathBase: /home/macnod/common-lisp/file-server
+
+utility:
+  image: busybox:1.36

@@ -3,25 +3,56 @@ kind: Deployment
 metadata:
   name: file-server-{{ .Values.environment }}-deployment
   labels:
-    app: file-server-{{ .Values.environment }}
+    {{- include "file-server.labels" . | nindent 4 }}
   namespace: {{ .Values.namespace }}
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: file-server-{{ .Values.environment }}
-      environment: {{ .Values.environment }}
+      {{- include "file-server.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
-        app: file-server-{{ .Values.environment }}
-        environment: {{ .Values.environment }}
+        {{- include "file-server.labels" . | nindent 8 }}
     spec:
       terminationGracePeriodSeconds: 60
+      initContainers:
+        - name: init-storage
+          image: {{ .Values.postgres.image }}
+          command: ['sh', '-c']
+          args:
+            - |
+              echo "Waiting for PostgreSQL..."
+              TIMEOUT=20
+              START=$(date +%s)
+              until pg_isready -h $DB_HOST -p $DB_PORT -U fileserver -d fileserver; do
+                NOW=$(date +%s)
+                ELAPSED=$((NOW - START))
+                if [ $ELAPSED -ge $TIMEOUT ]; then
+                  echo "PostgreSQL timeout after ${TIMEOUT} seconds"
+                  exit 1
+                fi
+                echo "Postgres not ready - waiting..."
+                sleep 2
+              done
+              echo "PostgreSQL ready after $ELAPSED seconds"
+          env:
+            - name: DB_HOST
+              value: postgres-{{ .Values.environment }}-service
+            - name: DB_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: file-server-{{ .Values.environment }}-secrets
+                  key: postgres-password
+          volumeMounts:
+            - name: file-server-volume
+              mountPath: /app/shared-files
       containers:
         - name: file-server
-          image: macnod/file-server:{{ .Values.image.tag }}
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          image: macnod/file-server:{{ .Values.fileServer.image.tag }}
+          imagePullPolicy: {{ .Values.fileServer.image.pullPolicy }}
           command: ["ros"]
           args:
             - "run"
@@ -44,7 +75,7 @@ spec:
               cpu: {{ .Values.fileServer.limits.cpu }}
           env:
             - name: FILE_MANAGER_VERSION
-              value: {{ .Values.image.tag | quote }}
+              value: {{ .Values.fileServer.image.tag | quote }}
             - name: FILE_MANAGER_ENVIRONMENT
               value: {{ .Values.environment | quote }}
             - name: DB_HOST
@@ -76,11 +107,14 @@ spec:
               value: "true"
             - name: WEB_DIRECTORY
               value: "/app/web"
+            - name: FS_DOCUMENT_ROOT
+              value: "/app/shared-files/"
+            - name: FS_TEMP_DIRECTORY
+              values: "/app/temp-files/"
           volumeMounts:
             - mountPath: /app
               name: file-server-volume
       volumes:
         - name: file-server-volume
-          hostPath:
-            path: {{ $.Values.postgres.hostPathBase }}/{{ .Values.environment }}
-            type: Directory
+          persistentVolumeClaim:
+            claimName: file-server-{{ .Values.environment }}-pvc

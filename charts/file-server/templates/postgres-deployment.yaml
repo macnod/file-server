@@ -7,7 +7,7 @@ spec:
   replicas: 1
   selector:
     matchLabels:
-      {{- include "postgres.labels" . | nindent 6 }}
+      {{- include "postgres.selectorLabels" . | nindent 6 }}
   template:
     metadata:
       labels:
@@ -17,10 +17,7 @@ spec:
       containers:
         - name: postgres
           image: {{ .Values.postgres.image }}
-          imagePullPolicy: Never
-          securityContext:
-            runAsUser: 1000
-            runAsGroup: 1000
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 5432
           env:
@@ -33,6 +30,28 @@ spec:
                 secretKeyRef:
                   name: file-server-{{ .Values.environment }}-secrets
                   key: postgres-password
+          readinessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - fileserver
+                - -d
+                - fileserver
+            initialDelaySeconds: 5
+            timeoutSeconds: 5
+            periodSeconds: 2
+          livenessProbe:
+            exec:
+              command:
+                - pg_isready
+                - -U
+                - fileserver
+                - -d
+                - fileserver
+            initialDelaySeconds: 30
+            timeoutSeconds: 10
+            periodSeconds: 10
           volumeMounts:
             - mountPath: /var/lib/postgresql/data
               name: pg-data
@@ -43,6 +62,6 @@ spec:
           persistentVolumeClaim:
             claimName: pg-{{ .Values.environment }}-pvc
         - name: init-sql
-          hostPath:
-            path: {{ $.Values.postgres.hostPathBase }}/{{ .Values.environment }}/db-init
-            type: Directory
+          configMap:
+            name: init-sql
+            defaultMode: 0644

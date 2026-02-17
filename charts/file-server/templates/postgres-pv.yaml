@@ -9,5 +9,5 @@ spec:
   accessModes:
     - ReadWriteOnce
   hostPath:
-    path: {{ $.Values.postgres.hostPathBase }}/{{ .Values.environment }}/pg-data
-    type: Directory
+    path: /pg-data/{{ .Values.environment }}
+    type: DirectoryOrCreate

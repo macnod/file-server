@@ -6,7 +6,7 @@ metadata:
 spec:
   type: NodePort
   selector:
-    app: postgres-{{ .Values.environment }}
+    {{- include "postgres.labels" . | nindent 4 }}
   ports:
     - port: {{ .Values.postgres.port }}
       targetPort: 5432

@@ -25,7 +25,7 @@ install-dependencies:
 	ros install macnod/dc-time
 	ros install macnod/p-log
 	ros install macnod/dc-eclectic
-	ros isntall macnod/rbac
+	ros install macnod/rbac
 
 test:
 	tests/run-tests "$(TEST_FILE)"
