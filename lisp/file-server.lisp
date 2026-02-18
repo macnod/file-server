@@ -229,42 +229,47 @@
 
 (defmethod h:acceptor-log-access ((acceptor fs-acceptor) &key return-code)
   "Override to route access logs through pl:plog."
-  (let* ((code (h:return-code*))
-          (uri (h:request-uri*))
-          (health-log (equal uri "/health"))
-          (log-severity (cond
-                          (health-log :debug)
-                          ((< code 300) :info)
-                          ((< code 500) :warn)
-                          (t :error))))
-    (unless (and health-log *log-suppress-health*)
-      (pl:plog log-severity
-        (list
-          :type "access"
-          :client (h:real-remote-addr)
-          :hop (h:remote-addr*)
-          :server (h:local-addr*)
-          :host (h:host)
-          :method (h:request-method*)
-          :uri uri
-          :return-code code
-          :status return-code
-          :content-length (or (h:content-length*) 0)
-          :content-type (or (h:content-type*) "unknown")
-          :referer (h:referer)
-          :agent (h:user-agent))))))
+  (declare (ignore acceptor return-code))
+  nil)
+  ;; (let* ((code (h:return-code*))
+  ;;         (uri (h:request-uri*))
+  ;;         (health-log (equal uri "/health"))
+  ;;         (log-severity (cond
+  ;;                         (health-log :debug)
+  ;;                         ((< code 300) :info)
+  ;;                         ((< code 500) :warn)
+  ;;                         (t :error))))
+  ;;   (unless (and health-log *log-suppress-health*)
+  ;;     (pl:plog log-severity
+  ;;       (list
+  ;;         :type "access"
+  ;;         :client (h:real-remote-addr)
+  ;;         :hop (h:remote-addr*)
+  ;;         :server (h:local-addr*)
+  ;;         :host (h:host)
+  ;;         :method (h:request-method*)
+  ;;         :uri uri
+  ;;         :return-code code
+  ;;         :status return-code
+  ;;         :content-length (or (h:content-length*) 0)
+  ;;         :content-type (or (h:content-type*) "unknown")
+  ;;         :referer (h:referer)
+  ;;         :agent (h:user-agent))))))
 
 (defmethod h:acceptor-log-message ((acceptor fs-acceptor)
                                     log-level
                                     format-string &rest format-arguments)
-  (let* ((log-severity (case log-level
-                         (:error :error)
-                         (:warning :warn)
-                         (:info :info)
-                         (t :debug)))
-          (message (apply #'format
-                     (append nil format-string) format-arguments)))
-    (pl:plog log-severity (list :text message))))
+  (declare (ignore acceptor log-level format-string format-arguments))
+  nil)
+
+  ;; (let* ((log-severity (case log-level
+  ;;                        (:error :error)
+  ;;                        (:warning :warn)
+  ;;                        (:info :info)
+  ;;                        (t :debug)))
+  ;;         (message (apply #'format
+  ;;                    (append nil format-string) format-arguments)))
+  ;;   (pl:plog log-severity (list :text message))))
 ;;
 ;; End custom Hunchentoot acceptor
 ;;
@@ -429,12 +434,14 @@ file name and returns the path to the file with a trailing slash."
 (defun has-read-access (user path)
   (pl:pdebug :in "has-read-access"
     :status "checking access" :user user :permission "read" :path path)
-  (a:user-allowed *rbac* user "read" path))
+  (when (and user path)
+    (a:user-allowed *rbac* user "read" path)))
 
 (defun has-update-access (user path)
   (pl:pdebug :in "has-update-access"
     :status "checking access" :user user :permission "update" :path path)
-  (a:user-allowed *rbac* user "update" path))
+  (when (and user path)
+    (a:user-allowed *rbac* user "update" path)))
 
 (defun list-files (abs-path)
   "Returns a list of files in ABS-PATH, where each file looks like an absolute
@@ -569,7 +576,7 @@ If the roles include the 'public' role, this function returns only the public ro
               :width 24 :height 24)
             name)
           (:span dir-roles)
-          (when (a:user-allowed *rbac* user "update" path)
+          (when (and user path (a:user-allowed *rbac* user "update" path))
             (:a :href edit-roles-href :class "edit-roles-link"
               (:img :src image-edit :alt "Edit roles" :title "Edit roles"
                 :width 16 :height 16))))))))
@@ -615,6 +622,7 @@ If the roles include the 'public' role, this function returns only the public ro
             (directory-section user path subdirs)
             (files-section files)
             (when (and
+                    user
                     (has (user-roles user) *logged-in-role*)
                     (a:user-allowed *rbac* user "create" path))
               (list
@@ -624,8 +632,17 @@ If the roles include the 'public' role, this function returns only the public ro
       :subtitle "Files")))
 
 (h:define-easy-handler (health :uri "/health") ()
-  (format nil "<html><body><h1>OK</h1>~a</body></html>~%"
-    (dt:timestamp-string)))
+  (format nil "OK~%"))
+
+(h:define-easy-handler (status :uri "/status") ()
+  (ds:to-json
+    (ds:ds `(:map
+              :host ,(h:host)
+              :service "file-server"
+              :environment ,*ENVIRONMENT*
+              :version ,*VERSION*
+              :timestamp ,(dt:timestamp-string)
+              :status "OK"))))
 
 (defun render-login-form (&key error-message redirect)
   (page
@@ -1218,7 +1235,7 @@ directory."
 
 (defun session-user (required-roles)
   (let* ((token (h:session-value :jwt-token))
-          (user (when token (validate-jwt token)))
+          (user (if token (validate-jwt token) *guest*))
           (user-roles (when user (user-roles user)))
           (allowed (has-some required-roles user-roles)))
     (pl:pdebug :in "session-user"

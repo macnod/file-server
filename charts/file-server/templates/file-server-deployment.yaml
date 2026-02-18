@@ -46,9 +46,6 @@ spec:
                 secretKeyRef:
                   name: file-server-{{ .Values.environment }}-secrets
                   key: postgres-password
-          volumeMounts:
-            - name: file-server-volume
-              mountPath: /app/shared-files
       containers:
         - name: file-server
           image: macnod/file-server:{{ .Values.fileServer.image.tag }}
@@ -112,7 +109,7 @@ spec:
             - name: FS_TEMP_DIRECTORY
               values: "/app/temp-files/"
           volumeMounts:
-            - mountPath: /app
+            - mountPath: /app/shared-files
               name: file-server-volume
       volumes:
         - name: file-server-volume

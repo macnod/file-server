@@ -41,9 +41,8 @@ WORKDIR /
 RUN rm -rf $ROSWELL_SRC_DIR
 RUN $ROSWELL setup
 
-RUN mkdir /app
+RUN mkdir -p /app/temp-files
 COPY dev/web /app/web
-RUN mkdir /app/temp-files
 
 #
 # END

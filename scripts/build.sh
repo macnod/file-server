@@ -195,6 +195,18 @@ if [[ "$NO_BUILD" = false ]]; then
     echo "Completed build for macnod/${IMAGE}:${VERSION}"
 fi
 
+# Push the containers
+if [[ "$PUSH" = true ]]; then
+    echo "Pushing macnod/${IMAGE}:${VERSION} and setting as latest"
+    if [[ "$VERBOSE" = true ]]; then
+        docker push "macnod/${IMAGE}:${VERSION}"
+        docker push "macnod/${IMAGE}:latest"
+    else
+        docker push "macnod/${IMAGE}:${VERSION}" >/dev/null
+        docker push "macnod/${IMAGE}:latest" >/dev/null
+    fi
+fi
+
 # Deploy
 if [[ "$NO_DEPLOY" = false ]]; then
     helm_command="helm upgrade -install $RELEASE_NAME ./charts/file-server --namespace misc --create-namespace -f $VALUES_FILE --set fileServer.image.tag=$VERSION"
@@ -204,12 +216,6 @@ if [[ "$NO_DEPLOY" = false ]]; then
     echo "Current directory: $PWD"
     $helm_command
     echo "Deployed macnod/${IMAGE}:${VERSION}"
-fi
-
-# Push the containers
-if [[ "$PUSH" = true ]]; then
-    docker push "macnod/${IMAGE}:${VERSION}"
-    docker push "macnod/${IMAGE}:latest"
 fi
 
 save_version
