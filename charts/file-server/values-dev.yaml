@@ -22,7 +22,7 @@ swankServer:
 
 postgres:
   image: postgres:16.10
-  port: 5441
+  port: 5432
   nodePort: 30201
   storageSize: 100Mi
 
